@@ -1,0 +1,58 @@
+{
+  "projectType": "general",
+  "projectName": "Shopify Module",
+  "projectDescription": "Automated Shopify checkout scripts for product purchasing with queue handling and captcha support",
+  "theme": "aspen",
+  "primaryColor": "#7C3AED",
+  "lightColor": "#A78BFA",
+  "darkColor": "#5B21B6",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/configuration",
+              "guides/scripts",
+              "guides/advanced-features"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/api",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Product search by URL or keywords",
+    "Automated variant selection",
+    "Queue system handling",
+    "Shopify account authentication",
+    "Captcha detection support",
+    "Proxy integration",
+    "Card vaulting and payment processing",
+    "Multiple script variants (preload, fast, safe)"
+  ],
+  "publicApiSurface": [
+    "startTask()",
+    "getUA()",
+    "getCaptcha(domain, sitekeylocal)",
+    "logCookies(jar)",
+    "setRunningStatus(str)",
+    "endRun(err)"
+  ]
+}
