@@ -1,0 +1,456 @@
+---
+title: Configuration Guide
+description: Complete reference for configuring the Shopify checkout bot
+---
+
+The Shopify Module uses a comprehensive configuration object to control all aspects of the checkout process. This guide covers all available configuration options extracted from the source code.
+
+## Item Configuration Object
+
+The main configuration object structure from `Preload.js:42-83`:
+
+<CodeGroup>
+```javascript Preload.js (lines 42-83)
+let item = {
+  shopifyEmail: "",
+  shopifyPassword: "",
+  color: "",
+  delay: 0,
+  id: "Sat Aug 08 2020 00:02:51 GMT+0200 (CEST)111",
+  url: "https://kith.com/collections/mens-footwear/products/cl20cbr08-bla",
+  urltest: "https://kith.com/collections/mens-footwear/products/cl20cbr08-bla",
+  keywords: "",
+  keywordstest: "",
+  profile: { /* ... */ },
+  proxyIp: "",
+  proxyPort: "",
+  proxyUser: "",
+  proxyPass: "",
+  randomColor: false,
+  randomSize: true,
+  randomSizetest: true,
+  sizetest: "10",
+  size: "10",
+  website: "www.kith.com",
+}
+```
+</CodeGroup>
+
+## Core Settings
+
+<ParamField path="url" type="string" required>
+  Direct product URL for the target item. The bot will fetch this product directly.
+  
+  ```javascript
+  url: "https://kith.com/collections/mens-footwear/products/cl20cbr08-bla"
+  ```
+</ParamField>
+
+<ParamField path="urltest" type="string">
+  Test product URL used for preloading the checkout session. Preload.js uses this to generate a valid checkout URL before the real product drops.
+  
+  ```javascript
+  urltest: "https://kith.com/collections/mens-footwear/products/test-product"
+  ```
+</ParamField>
+
+<ParamField path="website" type="string" required>
+  The domain of the Shopify store (without https://).
+  
+  ```javascript
+  website: "www.kith.com"
+  ```
+</ParamField>
+
+<ParamField path="delay" type="number" default="0">
+  Delay in milliseconds before submitting payment. Set to `0` for maximum speed.
+  
+  ```javascript
+  delay: 0  // No delay
+  delay: 3000  // 3 second delay
+  ```
+</ParamField>
+
+<ParamField path="id" type="string">
+  Internal task identifier. Auto-generated, no need to modify.
+</ParamField>
+
+## Product Selection
+
+<ParamField path="keywords" type="string">
+  Keywords for finding the real product when `url` is not provided. Supports advanced filtering with `+` and `-` syntax (see Advanced Features).
+  
+  ```javascript
+  keywords: "+yeezy +350 +boost -toddler"
+  ```
+</ParamField>
+
+<ParamField path="keywordstest" type="string">
+  Keywords for finding the test product during preload phase.
+  
+  ```javascript
+  keywordstest: "+tee"
+  ```
+</ParamField>
+
+<ParamField path="color" type="string">
+  Product color preference. Used in keyword filtering unless `randomColor` is enabled.
+  
+  ```javascript
+  color: "Black"
+  ```
+</ParamField>
+
+<ParamField path="randomColor" type="boolean" default="false">
+  If `true`, ignores color preference and selects any available color.
+  
+  ```javascript
+  randomColor: false  // Use specified color
+  randomColor: true   // Any color
+  ```
+</ParamField>
+
+## Size Selection
+
+<ParamField path="size" type="string" default="10">
+  Target size for the real product. Can be numeric ("10") or text ("M", "Large").
+  
+  ```javascript
+  size: "10"      // Shoe size
+  size: "M"       // Clothing size
+  size: "OneSize" // One size items
+  ```
+</ParamField>
+
+<ParamField path="sizetest" type="string" default="10">
+  Target size for the test product during preload.
+</ParamField>
+
+<ParamField path="randomSize" type="boolean" default="true">
+  If `true`, randomly selects any available size for the real product.
+  
+  ```javascript
+  randomSize: true   // Any available size
+  randomSize: false  // Use specified size
+  ```
+</ParamField>
+
+<ParamField path="randomSizetest" type="boolean" default="true">
+  Random size selection for test product.
+</ParamField>
+
+## Profile Configuration
+
+The `profile` object contains all checkout information:
+
+<ParamField path="profile" type="object" required>
+  Complete billing and shipping information for checkout.
+</ParamField>
+
+### Personal Information
+
+<ParamField path="profile.firstName" type="string" required>
+  First name for shipping address.
+  
+  ```javascript
+  firstName: "Tim"
+  ```
+</ParamField>
+
+<ParamField path="profile.lastName" type="string" required>
+  Last name for shipping address.
+  
+  ```javascript
+  lastName: "Smithson"
+  ```
+</ParamField>
+
+<ParamField path="profile.email" type="string" required>
+  Email address for order confirmation.
+  
+  ```javascript
+  email: "example@gmail.com"
+  ```
+</ParamField>
+
+<ParamField path="profile.phoneNumber" type="string" required>
+  Phone number (digits only, no formatting).
+  
+  ```javascript
+  phoneNumber: "8455415678"
+  ```
+</ParamField>
+
+### Address Information
+
+<ParamField path="profile.address" type="string" required>
+  Street address (line 1).
+  
+  ```javascript
+  address: "19 main street"
+  ```
+</ParamField>
+
+<ParamField path="profile.apt" type="string">
+  Apartment, suite, or unit number (optional).
+  
+  ```javascript
+  apt: "Apt 4B"
+  apt: ""  // Leave empty if not applicable
+  ```
+</ParamField>
+
+<ParamField path="profile.city" type="string" required>
+  City name.
+  
+  ```javascript
+  city: "New York"
+  ```
+</ParamField>
+
+<ParamField path="profile.state" type="string">
+  State or province code (2 letters for US states).
+  
+  ```javascript
+  state: "NY"  // New York
+  state: "CA"  // California
+  ```
+</ParamField>
+
+<ParamField path="profile.zipCode" type="string" required>
+  Postal/ZIP code.
+  
+  ```javascript
+  zipCode: "10016"
+  ```
+</ParamField>
+
+<ParamField path="profile.country" type="string" required>
+  Country code (2 letters, ISO 3166-1 alpha-2).
+  
+  ```javascript
+  country: "US"  // United States
+  country: "GB"  // United Kingdom
+  ```
+</ParamField>
+
+### Payment Information
+
+<Warning>
+Never commit payment information to version control. Use environment variables or secure configuration management.
+</Warning>
+
+<ParamField path="profile.cardNumber" type="string" required>
+  Credit card number (no spaces or dashes).
+  
+  ```javascript
+  cardNumber: "4242424242424242"
+  ```
+</ParamField>
+
+<ParamField path="profile.nameOnCard" type="string" required>
+  Full name as it appears on the card.
+  
+  ```javascript
+  nameOnCard: "Tim Smithson"
+  ```
+</ParamField>
+
+<ParamField path="profile.cvv" type="string" required>
+  Card security code (CVV/CVC).
+  
+  ```javascript
+  cvv: "123"
+  ```
+</ParamField>
+
+<ParamField path="profile.expirationMonth" type="number" required>
+  Expiration month (1-12, no leading zero).
+  
+  ```javascript
+  expirationMonth: 2   // February
+  expirationMonth: 12  // December
+  ```
+</ParamField>
+
+<ParamField path="profile.expirationYear" type="number" required>
+  Expiration year (last 2 digits only). The script automatically prepends "20".
+  
+  ```javascript
+  expirationYear: 22  // Will become 2022
+  expirationYear: 25  // Will become 2025
+  ```
+</ParamField>
+
+<ParamField path="profile.cardType" type="string" required>
+  Card brand/type.
+  
+  ```javascript
+  cardType: "visa"
+  cardType: "mastercard"
+  cardType: "amex"
+  ```
+</ParamField>
+
+<ParamField path="profile.id" type="string">
+  Internal profile identifier. No need to modify.
+</ParamField>
+
+<ParamField path="profile.name" type="string">
+  Profile name label. Not used in checkout process.
+  
+  ```javascript
+  name: "Home"
+  ```
+</ParamField>
+
+## Proxy Configuration
+
+<Tabs>
+  <Tab title="With Proxy">
+    Configure proxy settings to route requests through a proxy server:
+    
+    ```javascript
+    proxyIp: "123.45.67.89",
+    proxyPort: "8080",
+    proxyUser: "username",
+    proxyPass: "password"
+    ```
+    
+    All four fields must be provided to enable proxy support. The bot automatically constructs the proxy URL:
+    ```
+    http://username:password@123.45.67.89:8080
+    ```
+  </Tab>
+  
+  <Tab title="Without Proxy">
+    Leave all proxy fields empty to use direct connection:
+    
+    ```javascript
+    proxyIp: "",
+    proxyPort: "",
+    proxyUser: "",
+    proxyPass: ""
+    ```
+  </Tab>
+</Tabs>
+
+<ParamField path="proxyIp" type="string">
+  Proxy server IP address.
+</ParamField>
+
+<ParamField path="proxyPort" type="string">
+  Proxy server port number.
+</ParamField>
+
+<ParamField path="proxyUser" type="string">
+  Proxy authentication username.
+</ParamField>
+
+<ParamField path="proxyPass" type="string">
+  Proxy authentication password.
+</ParamField>
+
+## Account Login (Optional)
+
+<ParamField path="shopifyEmail" type="string">
+  Shopify account email for stores that require login before checkout.
+  
+  ```javascript
+  shopifyEmail: "user@example.com"
+  ```
+</ParamField>
+
+<ParamField path="shopifyPassword" type="string">
+  Shopify account password.
+  
+  ```javascript
+  shopifyPassword: "your_password"
+  ```
+</ParamField>
+
+<Info>
+Account login is handled automatically when the checkout URL redirects to `/account/login`. The bot detects this and submits credentials, including handling challenge captchas if required (lines 308-368).
+</Info>
+
+## Configuration Examples
+
+<CodeGroup>
+```javascript Fast Mode (No Delay)
+let item = {
+  url: "https://store.com/products/sneaker",
+  website: "store.com",
+  size: "10",
+  randomSize: false,
+  delay: 0,  // Maximum speed
+  profile: {
+    firstName: "John",
+    lastName: "Doe",
+    email: "john@example.com",
+    phoneNumber: "5551234567",
+    address: "123 Main St",
+    apt: "",
+    city: "New York",
+    state: "NY",
+    zipCode: "10001",
+    country: "US",
+    cardNumber: "4111111111111111",
+    nameOnCard: "John Doe",
+    cvv: "123",
+    expirationMonth: 12,
+    expirationYear: 25,
+    cardType: "visa"
+  },
+  proxyIp: "",
+  proxyPort: "",
+  proxyUser: "",
+  proxyPass: "",
+  shopifyEmail: "",
+  shopifyPassword: ""
+}
+```
+
+```javascript Keywords + Random Size
+let item = {
+  url: "",  // Use keywords instead
+  keywords: "+jordan +1 +high -low -mid",
+  website: "store.com",
+  color: "Black",
+  randomColor: false,
+  randomSize: true,  // Any available size
+  delay: 0,
+  profile: { /* ... */ },
+  proxyIp: "",
+  proxyPort: "",
+  proxyUser: "",
+  proxyPass: ""
+}
+```
+
+```javascript With Proxy + Account Login
+let item = {
+  url: "https://store.com/products/item",
+  website: "store.com",
+  size: "M",
+  delay: 2000,  // 2 second delay
+  profile: { /* ... */ },
+  proxyIp: "proxy.example.com",
+  proxyPort: "8080",
+  proxyUser: "proxyuser",
+  proxyPass: "proxypass",
+  shopifyEmail: "account@example.com",
+  shopifyPassword: "accountpass"
+}
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Script Variants" icon="code" href="/guides/scripts">
+    Learn about Preload.js, fast.js, and safe_1.js variants
+  </Card>
+  <Card title="Advanced Features" icon="star" href="/guides/advanced-features">
+    Queue handling, captcha solving, and keyword filtering
+  </Card>
+</CardGroup>

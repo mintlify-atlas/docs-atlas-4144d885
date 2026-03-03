@@ -1,0 +1,528 @@
+---
+title: Script Variants Guide
+description: Understanding the three script variants and when to use each one
+---
+
+The Shopify Module includes three script variants optimized for different use cases. Each variant implements the checkout flow differently, with tradeoffs between speed, reliability, and features.
+
+## Overview
+
+<CardGroup cols={3}>
+  <Card title="Preload.js" icon="rocket">
+    **Full Featured**
+    
+    Test product preloading for maximum speed on drops
+  </Card>
+  <Card title="fast.js" icon="bolt">
+    **Speed Optimized**
+    
+    Minimal delays and optimized for fast checkout
+  </Card>
+  <Card title="safe_1.js" icon="shield">
+    **Conservative**
+    
+    Standard checkout flow with better reliability
+  </Card>
+</CardGroup>
+
+## Script Comparison
+
+<Tabs>
+  <Tab title="Preload.js">
+    ### Full-Featured Preload Script
+    
+    **Location:** `Preload.js:42-1337`
+    
+    **Key Features:**
+    - **Test Product Preloading** (lines 104-240): Generates checkout session with dummy product before real drop
+    - **Dual Product Support**: Separate `urltest` and `url` fields for test and real products
+    - **Cart Switching**: Removes test product and adds real product while maintaining session (lines 722-731)
+    - **Full Queue Support**: Complete queue handling for both GraphQL and legacy polling methods
+    - **Account Login**: Automatic login with challenge captcha handling
+    - **Checkpoint Handling**: Solves checkpoint captchas automatically
+    
+    **Configuration:**
+    ```javascript
+    let item = {
+      url: "https://kith.com/products/real-product",
+      urltest: "https://kith.com/products/test-product",  // Preload product
+      keywords: "+jordan +1",
+      keywordstest: "+tee",  // Test product keywords
+      randomSizetest: true,
+      sizetest: "10",
+      // ... other config
+    }
+    ```
+    
+    **Workflow:**
+    <Steps>
+      <Step title="Preload Phase">
+        Find and add test product to cart (lines 104-240)
+        
+        ```javascript
+        setRunningStatus('Searching For Test Product...');
+        // Fetch test product via urltest or keywordstest
+        setRunningStatus('Preloading Cart...');
+        // Add test product to cart
+        ```
+      </Step>
+      
+      <Step title="Generate Checkout">
+        Create checkout session and extract tokens (lines 258-306)
+        
+        ```javascript
+        setRunningStatus('Generating Checkout Link...');
+        let urlReq = await request.post({
+          url: "https://" + item.website + "/cart/checkout",
+          form: {
+            "updates[]": 1,
+            "attributes[checkout_clicked]": true,
+            checkout: ""
+          }
+        });
+        ```
+      </Step>
+      
+      <Step title="Handle Queue/Login">
+        Process queue, account login, or checkpoint if required (lines 308-719)
+      </Step>
+      
+      <Step title="Remove Test Product">
+        Clear cart while maintaining session (lines 722-731)
+        
+        ```javascript
+        let removecart = await request.post({
+          url: `${domain}/cart/change.js?line=1&quantity=0`
+        });
+        setRunningStatus('Removed Item From Cart...');
+        ```
+      </Step>
+      
+      <Step title="Add Real Product">
+        Search for and add target product (lines 737-898)
+        
+        ```javascript
+        setRunningStatus('Searching For Product...');
+        // Find real product via url or keywords
+        setRunningStatus('Adding to Cart Real Product...');
+        ```
+      </Step>
+      
+      <Step title="Complete Checkout">
+        Submit address, shipping, payment, and poll for completion (lines 1045-1318)
+      </Step>
+    </Steps>
+    
+    **When to Use:**
+    - High-demand product releases where every millisecond counts
+    - Sites with slow checkout page loading
+    - When you have a reliable test product available
+    - Drops with queue systems
+    
+    **Advantages:**
+    - Fastest possible checkout speed (session already initialized)
+    - Bypasses initial checkout page load time
+    - Session tokens pre-generated before real product drops
+    
+    **Disadvantages:**
+    - More complex configuration (test product required)
+    - Slightly higher risk if session expires
+    - Two-phase monitoring (test + real product)
+  </Tab>
+  
+  <Tab title="fast.js">
+    ### Speed-Optimized Script
+    
+    **Location:** `fast.js:42-854`
+    
+    **Key Features:**
+    - **Direct Checkout**: No preload phase, goes straight to target product
+    - **Reduced Delays**: Uses 500ms delays instead of 1000ms (lines 112, 163)
+    - **Optimized Shipping**: Uses Shopify API endpoints for faster shipping rate retrieval (line 683)
+    - **JSON-based ATC**: Uses `application/json` content-type for cart operations (line 212)
+    - **Simplified Flow**: Streamlined checkout process
+    
+    **Configuration:**
+    ```javascript
+    let item = {
+      url: "https://jimmyjazz.com/products/nike-blazer",
+      keywords: "+yeezy +350 +boost -toddler",
+      size: "9",
+      randomSize: true,
+      delay: 0,
+      // ... other config
+    }
+    ```
+    
+    **Workflow:**
+    <Steps>
+      <Step title="Find Product">
+        Search for product via URL or keywords (lines 96-158)
+        
+        ```javascript
+        setRunningStatus('Searching For Product...');
+        if (item.url) {
+          // Direct URL fetch
+          let getitem = await request.get({
+            url: item.url + '.js'
+          });
+        } else {
+          // Keyword search with 500ms retry delay
+          await delay(500);
+        }
+        ```
+      </Step>
+      
+      <Step title="Add to Cart">
+        Add product to cart (lines 208-223)
+        
+        ```javascript
+        setRunningStatus('Adding to Cart...');
+        let cartReq = await request.post({
+          headers: {
+            'content-type': 'application/json; charset=UTF-8'
+          },
+          url: domain + "/cart/add.js",
+          form: { id: size.id, quantity: "1" }
+        });
+        ```
+      </Step>
+      
+      <Step title="Get Checkout URL">
+        Navigate to checkout (lines 226-240)
+      </Step>
+      
+      <Step title="Handle Queue/Login">
+        Process any queues, login, or checkpoints (lines 257-592)
+      </Step>
+      
+      <Step title="Get Checkout Token">
+        Fetch checkout session and API token (lines 600-618)
+        
+        ```javascript
+        let getCheckoutInfo = await request.post({
+          url: "https://" + item.website + "/checkout.json",
+          jar: cookieJar
+        });
+        const apiToken = $("meta[name='shopify-checkout-api-token']").attr("content");
+        ```
+      </Step>
+      
+      <Step title="Submit Shipping">
+        Address and shipping using API (lines 620-753)
+        
+        ```javascript
+        // PATCH request to Shopify Wallets API
+        let addressReq = await request.patch({
+          headers: {
+            authorization: "Basic  " + btoa(apiToken)
+          },
+          url: domain + "/wallets/checkouts/" + Token + ".json"
+        });
+        ```
+      </Step>
+      
+      <Step title="Process Payment">
+        Vault card and complete checkout (lines 757-843)
+        
+        ```javascript
+        // 250ms polling for shipping rates
+        await delay(250);
+        ```
+      </Step>
+    </Steps>
+    
+    **When to Use:**
+    - General releases without extreme competition
+    - When you want speed but don't need preload complexity
+    - Sites that don't require test product preloading
+    - Quick one-off checkouts
+    
+    **Advantages:**
+    - Simpler configuration (no test product needed)
+    - Faster retry loops (500ms vs 1000ms)
+    - Direct API integration for shipping
+    - Good balance of speed and reliability
+    
+    **Disadvantages:**
+    - No preload advantage
+    - Must wait for checkout page initialization
+  </Tab>
+  
+  <Tab title="safe_1.js">
+    ### Conservative Checkout Script
+    
+    **Location:** `safe_1.js:40-815`
+    
+    **Key Features:**
+    - **Standard Checkout Flow**: Traditional form-based checkout
+    - **Longer Delays**: Uses 1000ms delays for better stability (lines 110, 161)
+    - **Legacy Shipping API**: Uses cart-based shipping rates endpoint (line 652)
+    - **Form-encoded Requests**: Standard `application/x-www-form-urlencoded` (line 209)
+    - **Conservative Polling**: More deliberate 500ms delays (line 643)
+    
+    **Configuration:**
+    ```javascript
+    let item = {
+      url: "https://jimmyjazz.com/products/adidas-terrex",
+      keywords: "",
+      size: "9",
+      randomSize: true,
+      delay: 0,
+      // ... other config
+    }
+    ```
+    
+    **Workflow:**
+    <Steps>
+      <Step title="Find Product">
+        Search with 1000ms retry delay (lines 94-156)
+        
+        ```javascript
+        setRunningStatus('Searching For Product...');
+        while (!chosenProduct) {
+          if (!firsty) {
+            await delay(1000);  // Longer delay for stability
+          }
+        }
+        ```
+      </Step>
+      
+      <Step title="Add to Cart">
+        Standard ATC request (lines 205-220)
+        
+        ```javascript
+        setRunningStatus('Adding to Cart...');
+        let cartReq = await request.post({
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8'
+          },
+          url: domain + "/cart/add.js"
+        });
+        ```
+      </Step>
+      
+      <Step title="Navigate to Checkout">
+        POST to /cart/checkout (lines 223-237)
+        
+        ```javascript
+        setRunningStatus('Going to Checkout...');
+        let urlReq = await request.post({
+          url: "https://" + item.website + "/cart/checkout",
+          form: {
+            "updates[]": 1,
+            "attributes[checkout_clicked]": true,
+            checkout: ""
+          }
+        });
+        ```
+      </Step>
+      
+      <Step title="Handle Queue/Login/Checkpoint">
+        Process any required challenges (lines 253-585)
+      </Step>
+      
+      <Step title="Submit Address">
+        Form-based address submission (lines 594-630)
+        
+        ```javascript
+        setRunningStatus('Submitting Address...');
+        let addressBody = `_method=patch&authenticity_token=${authToken}...`;
+        ```
+      </Step>
+      
+      <Step title="Get Shipping Rates">
+        Query legacy shipping API (lines 640-672)
+        
+        ```javascript
+        setRunningStatus('Getting Shipping Info...');
+        // Uses cart/shipping_rates.json endpoint
+        url: `${domain}/cart/shipping_rates.json?shipping_address[zip]=...`
+        ```
+      </Step>
+      
+      <Step title="Submit Shipping">
+        Select cheapest shipping option (lines 674-713)
+        
+        ```javascript
+        bestShipping = shippingOptions.sort(
+          (a, b) => parseFloat(a.price) - [parseFloat(b.price)]
+        )[0];
+        ```
+      </Step>
+      
+      <Step title="Complete Payment">
+        Vault card and poll for completion (lines 716-805)
+        
+        ```javascript
+        while (loops < 10) {
+          await delay(1000);  // Conservative polling
+          setRunningStatus(`Polling Checkout ${loops.toString()}`);
+        }
+        ```
+      </Step>
+    </Steps>
+    
+    **When to Use:**
+    - Testing and development
+    - Sites with strict rate limiting
+    - When maximum reliability is more important than speed
+    - General availability products
+    - Troubleshooting checkout issues
+    
+    **Advantages:**
+    - Most reliable and stable
+    - Better compatibility with different Shopify configurations
+    - Easier to debug (standard checkout flow)
+    - Lower risk of detection/blocking
+    
+    **Disadvantages:**
+    - Slowest of the three variants
+    - Uses legacy API endpoints
+    - Longer delays reduce competitive advantage
+  </Tab>
+</Tabs>
+
+## Feature Matrix
+
+| Feature | Preload.js | fast.js | safe_1.js |
+|---------|------------|---------|----------|
+| **Preload Support** | ✅ Yes | ❌ No | ❌ No |
+| **Product Monitoring** | Test + Real | Real only | Real only |
+| **Retry Delay** | 1000ms | 500ms | 1000ms |
+| **Shipping Polling** | 500ms | 250ms | 500ms |
+| **API Endpoint** | Wallets API | Wallets API | Legacy Cart API |
+| **Content Type** | form-data | JSON | form-urlencoded |
+| **Queue Handling** | Full support | Full support | Full support |
+| **Account Login** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Captcha Solving** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Best For** | Hyped drops | Fast checkout | Reliability |
+| **Complexity** | High | Medium | Low |
+| **Speed** | Fastest | Fast | Slowest |
+| **Stability** | Medium | Medium | Highest |
+
+## Choosing the Right Script
+
+<AccordionGroup>
+  <Accordion title="High-Demand Releases" icon="fire">
+    **Use: Preload.js**
+    
+    When:
+    - Product sells out in seconds
+    - Every millisecond matters
+    - You have a reliable test product
+    - Queue systems are common
+    
+    Example: Limited sneaker releases, Supreme drops
+  </Accordion>
+  
+  <Accordion title="Regular Releases" icon="clock">
+    **Use: fast.js**
+    
+    When:
+    - Product has moderate demand
+    - You want speed without complexity
+    - No test product available
+    - Standard checkout is sufficient
+    
+    Example: General sneaker releases, clothing drops
+  </Accordion>
+  
+  <Accordion title="Testing & Development" icon="flask">
+    **Use: safe_1.js**
+    
+    When:
+    - Setting up new configurations
+    - Debugging checkout issues
+    - Site has strict rate limiting
+    - Reliability over speed
+    
+    Example: Configuration testing, general availability items
+  </Accordion>
+</AccordionGroup>
+
+## Performance Comparison
+
+<CodeGroup>
+```plaintext Preload.js Timeline
+0ms     - Start monitoring test product
+100ms   - Test product found
+500ms   - Added to cart
+1200ms  - Checkout session generated
+1800ms  - Queue/login handled
+2100ms  - Test product removed
+[WAITING FOR REAL PRODUCT DROP]
+2500ms  - Real product detected
+2800ms  - Added to cart (session reused)
+3500ms  - Checkout complete
+
+Total: ~1000ms from product drop to checkout
+```
+
+```plaintext fast.js Timeline
+0ms     - Start monitoring
+[WAITING FOR PRODUCT DROP]
+0ms     - Product detected
+300ms   - Added to cart
+800ms   - Checkout session initialized
+1500ms  - Address submitted
+2200ms  - Shipping selected
+2800ms  - Payment processed
+3500ms  - Checkout complete
+
+Total: ~3500ms from product drop to checkout
+```
+
+```plaintext safe_1.js Timeline
+0ms     - Start monitoring
+[WAITING FOR PRODUCT DROP]
+0ms     - Product detected
+500ms   - Added to cart
+1200ms  - Checkout session initialized
+2000ms  - Address submitted
+3000ms  - Shipping selected
+3800ms  - Payment processed
+4500ms  - Checkout complete
+
+Total: ~4500ms from product drop to checkout
+```
+</CodeGroup>
+
+<Warning>
+These timelines are approximate and vary based on:
+- Network latency
+- Proxy speed
+- Server response times
+- Queue wait times
+- Captcha requirements
+</Warning>
+
+## Script Modifications
+
+<Info>
+All three scripts share the same configuration object structure. You can switch between scripts without changing your configuration.
+</Info>
+
+### Running Different Scripts
+
+```bash
+# Preload variant (fastest)
+node Preload.js
+
+# Fast variant (balanced)
+node fast.js
+
+# Safe variant (most reliable)
+node safe_1.js
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" icon="gear" href="/guides/configuration">
+    Complete reference for all configuration options
+  </Card>
+  <Card title="Advanced Features" icon="star" href="/guides/advanced-features">
+    Queue handling, captcha solving, and keyword filtering
+  </Card>
+</CardGroup>

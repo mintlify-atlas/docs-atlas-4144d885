@@ -1,0 +1,598 @@
+---
+title: API Reference
+description: Complete API documentation for the Shopify Module
+---
+
+## Core Functions
+
+The Shopify Module provides several public functions that can be used to interact with Shopify's checkout system.
+
+### startTask()
+
+The main entry point for executing a checkout task. This function orchestrates the entire checkout process from product search to payment submission.
+
+**Location:** `Preload.js:41`
+
+**Signature:**
+```javascript
+async function startTask()
+```
+
+**Description:**
+Initiates the complete checkout flow including:
+- Product search and variant selection
+- Cart management
+- Account authentication (if required)
+- Checkpoint/queue handling
+- Address submission
+- Shipping rate selection
+- Payment processing
+
+**Example:**
+```javascript
+const { startTask } = require('./Preload');
+
+await startTask();
+```
+
+**Task Configuration:**
+The task requires an `item` object with the following structure:
+
+<ParamField path="item.url" type="string">
+  Direct product URL (e.g., `https://kith.com/products/product-handle`)
+</ParamField>
+
+<ParamField path="item.keywords" type="string">
+  Space-separated keywords for product search. Use `+` for required terms and `-` for exclusions (e.g., `+yeezy +350 -toddler`)
+</ParamField>
+
+<ParamField path="item.size" type="string">
+  Size/variant to purchase. Can be numeric (9, 10, 11) or text (S, M, L, XL, OneSize)
+</ParamField>
+
+<ParamField path="item.randomSize" type="boolean" default="false">
+  If true, selects a random available variant
+</ParamField>
+
+<ParamField path="item.color" type="string">
+  Product color preference
+</ParamField>
+
+<ParamField path="item.delay" type="number" default="0">
+  Delay in milliseconds before submitting checkout
+</ParamField>
+
+<ParamField path="item.website" type="string" required>
+  Domain name (e.g., `www.kith.com`)
+</ParamField>
+
+<ParamField path="item.shopifyEmail" type="string">
+  Shopify account email for authenticated checkouts
+</ParamField>
+
+<ParamField path="item.shopifyPassword" type="string">
+  Shopify account password for authenticated checkouts
+</ParamField>
+
+<ParamField path="item.profile" type="object" required>
+  Billing and shipping profile information
+  
+  <ParamField path="profile.firstName" type="string" required>
+    First name
+  </ParamField>
+  
+  <ParamField path="profile.lastName" type="string" required>
+    Last name
+  </ParamField>
+  
+  <ParamField path="profile.email" type="string" required>
+    Contact email address
+  </ParamField>
+  
+  <ParamField path="profile.phoneNumber" type="string" required>
+    Phone number (digits only)
+  </ParamField>
+  
+  <ParamField path="profile.address" type="string" required>
+    Street address
+  </ParamField>
+  
+  <ParamField path="profile.apt" type="string">
+    Apartment/suite number (optional)
+  </ParamField>
+  
+  <ParamField path="profile.city" type="string" required>
+    City
+  </ParamField>
+  
+  <ParamField path="profile.state" type="string" required>
+    State/province code (e.g., NY, CA)
+  </ParamField>
+  
+  <ParamField path="profile.zipCode" type="string" required>
+    ZIP/postal code
+  </ParamField>
+  
+  <ParamField path="profile.country" type="string" required>
+    Country code (e.g., US, CA)
+  </ParamField>
+  
+  <ParamField path="profile.cardNumber" type="string" required>
+    Credit card number (no spaces)
+  </ParamField>
+  
+  <ParamField path="profile.nameOnCard" type="string" required>
+    Name as it appears on card
+  </ParamField>
+  
+  <ParamField path="profile.expirationMonth" type="number" required>
+    Expiration month (1-12)
+  </ParamField>
+  
+  <ParamField path="profile.expirationYear" type="number" required>
+    Expiration year (last 2 digits, e.g., 22 for 2022)
+  </ParamField>
+  
+  <ParamField path="profile.cvv" type="string" required>
+    Card security code
+  </ParamField>
+  
+  <ParamField path="profile.cardType" type="string" required>
+    Card type (visa, mastercard, amex, discover)
+  </ParamField>
+</ParamField>
+
+<ParamField path="item.proxyIp" type="string">
+  Proxy IP address
+</ParamField>
+
+<ParamField path="item.proxyPort" type="string">
+  Proxy port
+</ParamField>
+
+<ParamField path="item.proxyUser" type="string">
+  Proxy username for authentication
+</ParamField>
+
+<ParamField path="item.proxyPass" type="string">
+  Proxy password for authentication
+</ParamField>
+
+---
+
+### getUA()
+
+Returns the user agent string used for all HTTP requests.
+
+**Location:** `Preload.js:24`
+
+**Signature:**
+```javascript
+function getUA()
+```
+
+<ResponseField name="return" type="string">
+  User agent string for Chrome 87 on macOS
+</ResponseField>
+
+**Example:**
+```javascript
+const userAgent = getUA();
+// Returns: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/537.36..."
+```
+
+---
+
+### getCaptcha()
+
+Hook function for integrating captcha solving services. This function is called when a captcha challenge is detected.
+
+**Location:** `Preload.js:36`
+
+**Signature:**
+```javascript
+function getCaptcha(domain, sitekeylocal)
+```
+
+<ParamField path="domain" type="string" required>
+  The domain where the captcha needs to be solved
+</ParamField>
+
+<ParamField path="sitekeylocal" type="string" required>
+  The reCAPTCHA site key extracted from the page
+</ParamField>
+
+<ResponseField name="return" type="string">
+  The captcha token to submit with the request
+</ResponseField>
+
+**Example:**
+```javascript
+function getCaptcha(domain, sitekeylocal) {
+  // Integrate your captcha solving service here
+  // Example: 2Captcha, Anti-Captcha, CapMonster, etc.
+  return await captchaSolver.solve({
+    websiteURL: domain,
+    websiteKey: sitekeylocal,
+    type: 'ReCaptchaV2'
+  });
+}
+```
+
+**When Called:**
+- Account login challenge (`/challenge` endpoint)
+- Checkpoint verification (`/checkpoint` endpoint)
+- First-step captcha on checkout page
+
+---
+
+### logCookies()
+
+Utility function to extract and format cookies from a request jar.
+
+**Location:** `Preload.js:6`
+
+**Signature:**
+```javascript
+function logCookies(jar)
+```
+
+<ParamField path="jar" type="CookieJar" required>
+  The request-promise cookie jar instance
+</ParamField>
+
+<ResponseField name="return" type="Promise<string>">
+  Comma-separated string of all cookies in the jar
+</ResponseField>
+
+**Example:**
+```javascript
+const cookieJar = request.jar();
+const cookies = await logCookies(cookieJar);
+console.log(cookies);
+// Output: "_shopify_y=abc123, cart=xyz789, ..."
+```
+
+---
+
+### setRunningStatus()
+
+Logs status messages to the console during task execution.
+
+**Location:** `Preload.js:32`
+
+**Signature:**
+```javascript
+function setRunningStatus(str)
+```
+
+<ParamField path="str" type="string" required>
+  Status message to display
+</ParamField>
+
+**Example:**
+```javascript
+setRunningStatus('Searching For Product...');
+setRunningStatus('Adding to Cart...');
+setRunningStatus('Submitting Address...');
+```
+
+**Common Status Messages:**
+- `"Searching For Product..."`
+- `"Found Test Product..."`
+- `"Preloading Cart..."`
+- `"Generating Checkout Link..."`
+- `"Signing Into Account..."`
+- `"Adding to Cart Real Product..."`
+- `"Going to Checkout..."`
+- `"Polling Queue X..."`
+- `"Submitting Address..."`
+- `"Getting Shipping Rates..."`
+- `"Submitting Shipping..."`
+- `"Vaulting Card Info..."`
+- `"Checking Out..."`
+- `"Polling Checkout X..."`
+
+---
+
+### endRun()
+
+Terminates the task execution and logs an error message.
+
+**Location:** `Preload.js:28`
+
+**Signature:**
+```javascript
+function endRun(err = 'error')
+```
+
+<ParamField path="err" type="string" default="error">
+  Error message to display
+</ParamField>
+
+**Example:**
+```javascript
+if (response.includes('out of stock')) {
+  endRun('Product Out of Stock');
+}
+
+if (response.includes('no shipping methods')) {
+  endRun('There are no shipping methods available');
+}
+```
+
+---
+
+## Request Configuration
+
+### Basic Setup
+
+All requests use `request-promise` with specific defaults:
+
+```javascript
+const request = require('request-promise').defaults({
+  followAllRedirects: true,
+  resolveWithFullResponse: true,
+  proxy: proxyUrl // Optional
+});
+
+const cookieJar = request.jar();
+```
+
+### Proxy Configuration
+
+Proxies are configured in the format:
+```javascript
+const proxyUrl = `http://${proxyUser}:${proxyPass}@${proxyIp}:${proxyPort}`;
+```
+
+**Note:** When using proxies, SSL certificate validation is disabled:
+```javascript
+if (proxyIp && proxyPort) {
+  request.defaults({ strictSSL: false });
+}
+```
+
+### Cookie Jar Usage
+
+All requests should include the cookie jar to maintain session state:
+
+```javascript
+await request.get({
+  url: 'https://example.com',
+  jar: cookieJar,
+  headers: { 'user-agent': getUA() }
+});
+```
+
+---
+
+## Checkout Flow Endpoints
+
+### 1. Product Information
+
+**Direct Product URL:**
+```javascript
+GET {productUrl}.js
+Content-Type: application/json
+```
+
+**Products List:**
+```javascript
+GET https://{domain}/products.json?limit=250&page=1&order=updated_at
+```
+
+### 2. Add to Cart
+
+```javascript
+POST https://{domain}/cart/add.js
+Content-Type: application/x-www-form-urlencoded
+
+Form Data:
+  id: {variantId}
+  quantity: "1"
+```
+
+### 3. Generate Checkout
+
+```javascript
+POST https://{domain}/cart/checkout
+Content-Type: application/x-www-form-urlencoded
+
+Form Data:
+  updates[]: 1
+  attributes[checkout_clicked]: true
+  checkout: ""
+```
+
+### 4. Account Login (if required)
+
+```javascript
+POST https://{domain}/account/login
+Content-Type: application/x-www-form-urlencoded
+
+Form Data:
+  form_type: customer_login
+  utf8: ✓
+  customer[email]: {email}
+  customer[password]: {password}
+  checkout_url: {encodedCheckoutUrl}
+```
+
+### 5. Submit Address
+
+```javascript
+POST https://{domain}/wallets/checkouts/{token}.json
+Authorization: Basic {base64(apiToken)}
+Content-Type: application/x-www-form-urlencoded
+
+Form Data:
+  _method: patch
+  authenticity_token: {token}
+  previous_step: contact_information
+  step: shipping_method
+  checkout[email_or_phone]: {email}
+  checkout[shipping_address][first_name]: {firstName}
+  checkout[shipping_address][last_name]: {lastName}
+  checkout[shipping_address][address1]: {address}
+  checkout[shipping_address][city]: {city}
+  checkout[shipping_address][country]: {country}
+  checkout[shipping_address][province]: {state}
+  checkout[shipping_address][zip]: {zipCode}
+  checkout[shipping_address][phone]: {phoneNumber}
+```
+
+### 6. Get Shipping Rates
+
+```javascript
+GET https://{domain}/api/2020-10/checkouts/{token}/shipping_rates.json
+Authorization: Basic {base64(apiToken)}
+```
+
+### 7. Submit Shipping
+
+```javascript
+PUT https://{domain}/api/2020-10/checkouts/{token}.json
+Authorization: Basic {base64(apiToken)}
+Content-Type: application/json
+
+JSON Body:
+{
+  "checkout": {
+    "token": "{token}",
+    "shipping_line": {
+      "handle": "{shippingRateId}"
+    }
+  }
+}
+```
+
+### 8. Vault Payment
+
+```javascript
+POST https://deposit.us.shopifycs.com/sessions
+Content-Type: application/json
+
+JSON Body:
+{
+  "credit_card": {
+    "month": 12,
+    "name": "John Doe",
+    "number": "4242424242424242",
+    "verification_value": "123",
+    "year": 2025
+  }
+}
+```
+
+<ResponseField name="id" type="string">
+  Vaulted session ID to use in checkout submission
+</ResponseField>
+
+### 9. Submit Payment
+
+```javascript
+POST https://{domain}/checkouts/{checkoutId}
+Content-Type: application/x-www-form-urlencoded
+
+Form Data:
+  _method: patch
+  authenticity_token: {token}
+  previous_step: payment_method
+  step: ""
+  s: {vaultedSessionId}
+  checkout[payment_gateway]: {gatewayId}
+  checkout[credit_card][vault]: false
+  checkout[different_billing_address]: false
+  complete: 1
+```
+
+### 10. Poll Checkout Status
+
+```javascript
+GET https://{domain}/checkouts/{checkoutId}/processing
+```
+
+<ResponseField name="finalUrl" type="string">
+  If redirect contains `thank_you` or `orders`, checkout succeeded
+</ResponseField>
+
+---
+
+## Queue Handling
+
+### Detecting Queue
+
+When `checkoutURL` contains `/throttle/queue`, the module enters queue polling mode.
+
+### GraphQL Queue Poll
+
+```javascript
+POST https://{domain}/queue/poll
+Content-Type: application/json
+
+JSON Body:
+{
+  "query": "{ poll(token: $token) { token pollAfter } }",
+  "variables": { "token": "{queueToken}" }
+}
+```
+
+**Response:**
+```json
+{
+  "data": {
+    "poll": {
+      "__typename": "PollContinue",
+      "token": "new-token",
+      "pollAfter": "2024-01-01T12:00:00Z"
+    }
+  }
+}
+```
+
+Poll continues until `__typename` is no longer `"PollContinue"`.
+
+### Legacy Queue Poll
+
+```javascript
+GET https://{domain}/checkout/poll?js_poll=1
+```
+
+Check `Retry-After` header and status code. Continue until status is `200`.
+
+---
+
+## Error Handling
+
+### Common Error Checks
+
+```javascript
+// No shipping methods available
+if (response.includes('There are no shipping methods available')) {
+  endRun('There are no shipping methods available for your cart or address');
+}
+
+// PayPal only (no credit card)
+if (!response.includes('data-gateway-name="credit_card"') && 
+    response.includes('data-select-gateway=')) {
+  endRun('Paypal Only');
+}
+
+// Payment declined
+if (response.includes('<p class="notice__text">')) {
+  const errorMessage = response
+    .split('<p class="notice__text">')[1]
+    .split('</p>')[0];
+  console.log(errorMessage);
+}
+```
+
+### Success Detection
+
+```javascript
+if (finalUrl.includes('thank_you') || finalUrl.includes('orders')) {
+  console.log('Success');
+  return;
+}
+```

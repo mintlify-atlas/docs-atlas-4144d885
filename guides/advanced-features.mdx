@@ -1,0 +1,753 @@
+---
+title: Advanced Features
+description: Deep dive into queue handling, captcha solving, account login, and keyword filtering
+---
+
+The Shopify Module includes sophisticated features for handling common checkout challenges. This guide covers the advanced functionality extracted from the source code.
+
+## Queue System Handling
+
+Shopify's queue system throttles checkout traffic during high-demand releases. The bot implements comprehensive queue handling for both modern GraphQL and legacy polling methods.
+
+### Queue Detection
+
+The bot automatically detects queue pages by checking the checkout URL:
+
+```javascript Preload.js:415
+if (checkoutURL.includes('/throttle/queue')) {
+  // Queue handling logic
+}
+```
+
+### GraphQL Queue Method
+
+**Source:** `Preload.js:415-719`
+
+The modern queue system uses GraphQL polling with token-based progression:
+
+<Steps>
+  <Step title="Extract Queue Token">
+    Read the `_checkout_queue_token` from cookies (lines 417-423)
+    
+    ```javascript
+    const cookiePre = await logCookies(cookieJar);
+    if (cookiePre.includes('_checkout_queue_token')) {
+      let token = cookiePre.split('_checkout_queue_token')[1].split(';')[0];
+    }
+    ```
+  </Step>
+  
+  <Step title="Poll Queue Status">
+    Continuously query GraphQL endpoint until cleared (lines 426-452)
+    
+    ```javascript
+    let typeName = 'PollContinue';
+    while (typeName === 'PollContinue') {
+      const pollReq = await request.post({
+        url: `${domain}/queue/poll`,
+        headers: {
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          "query": "\n      {\n        poll(token: $token) {\n          token\n          pollAfter\n        }\n      }\n    ",
+          "variables": { "token": token }
+        })
+      });
+      
+      const pollRes = JSON.parse(pollReq.body);
+      typeName = pollRes.data.poll.__typename;
+      timeStamp = new Date(pollRes.data.poll.pollAfter).getTime();
+      token = pollRes.data.poll.token;
+    }
+    ```
+  </Step>
+  
+  <Step title="Decode Replay Data">
+    Extract and decode the queue replay object (lines 473-480)
+    
+    ```javascript
+    const cookieAft = await logCookies(cookieJar);
+    const replayObject = JSON.parse(
+      t(decodeURIComponent(
+        cookieAft.split('_queue_replay_data=')[1].split(';')[0]
+      ))
+    );
+    ```
+    
+    The `t()` function decodes base64-encoded queue data:
+    ```javascript Preload.js:403-412
+    function t(e) {
+      return decodeURIComponent(
+        atob(e.replace(/_/g, "/").replace(/-/g, "+"))
+          .split("")
+          .map(function (e) {
+            return "%" + ("00" + e.charCodeAt(0).toString(16)).slice(-2);
+          })
+          .join("")
+      );
+    }
+    ```
+  </Step>
+  
+  <Step title="Replay Request">
+    Execute the stored request to proceed to checkout (lines 482-652)
+    
+    The replay object contains method (GET/POST/PUT/PATCH) and parameters:
+    
+    ```javascript
+    if (replayObject.method === 'GET') {
+      urlReq = await request.get({
+        url: replayObject.url,
+        jar: cookieJar
+      });
+    } else if (['PUT', 'PATCH', 'POST'].includes(replayObject.method)) {
+      // Convert params to form-encoded body
+      let body = [];
+      let n = w(replayObject.params);
+      // ... param processing ...
+      urlReq = await request[replayObject.method.toLowerCase()]({
+        url: replayObject.url,
+        body: encodeURI(body.join('&'))
+      });
+    }
+    ```
+  </Step>
+</Steps>
+
+### Legacy Queue Method
+
+**Source:** `Preload.js:653-715`, `safe_1.js:524-581`
+
+Older queue system uses HTTP status code polling:
+
+<Steps>
+  <Step title="Poll with Status Codes">
+    Request `/checkout/poll?js_poll=1` until status is 200 (lines 658-675)
+    
+    ```javascript
+    const queueURL = checkoutURL;
+    let retryAfter = 0;
+    let status = 202;
+    let poll = 0;
+    
+    while (parseInt(status) !== 200) {
+      setRunningStatus(`Polling Queue ${poll}...`);
+      await delay(retryAfter);
+      
+      let pollReq = await request.get({
+        headers: {
+          'User-Agent': getUA(),
+          referer: checkoutURL
+        },
+        url: `${domain}/checkout/poll?js_poll=1`
+      });
+      
+      status = pollReq.status;
+      retryAfter = pollReq.headers['retry-after'] 
+        ? parseInt(pollReq.headers['retry-after']) * 1000 
+        : 5000;
+      poll++;
+    }
+    ```
+  </Step>
+  
+  <Step title="Handle Retry-After Header">
+    Respect server-provided delay times (lines 687-689)
+    
+    ```javascript
+    if (thisthing.headers['retry-after']) {
+      await delay(parseInt(thisthing.headers['retry-after']) * 1000);
+    }
+    ```
+  </Step>
+  
+  <Step title="Final Checkout Request">
+    Navigate to checkout URL with query parameters (lines 690-706)
+    
+    ```javascript
+    if (thisthing.finalUrl.includes('throttle/queue')) {
+      let ur = `${domain}/checkout`;
+      if (queueURL.split('?')[1]) {
+        ur += `?${queueURL.split('?')[1]}`;
+      }
+      thisthing = await request.get({
+        url: ur,
+        jar: cookieJar
+      });
+    }
+    ```
+  </Step>
+</Steps>
+
+<Info>
+Both queue methods are automatically detected and handled. The bot tries GraphQL first, then falls back to legacy polling if the `_checkout_queue_token` cookie is not present.
+</Info>
+
+## Captcha Solving Integration
+
+The bot integrates with external captcha solving services at multiple checkpoint stages.
+
+### getCaptcha Function
+
+**Source:** `Preload.js:36-39`
+
+```javascript
+function getCaptcha(domain, sitekeylocal) {
+  console.log('Captcha needs solving'.underline.yellow);
+  //process.exit(0)
+}
+```
+
+<Warning>
+The `getCaptcha` function is a placeholder. You must implement integration with a captcha solving service (2Captcha, Anti-Captcha, CapMonster, etc.).
+</Warning>
+
+### Captcha Trigger Points
+
+<Tabs>
+  <Tab title="Checkpoint Captcha">
+    **Location:** `Preload.js:374-401`, `safe_1.js:312-334`
+    
+    Triggered when checkout URL includes `/checkpoint`:
+    
+    ```javascript
+    if (checkoutURL.includes('/checkpoint')) {
+      let captchaToken = await getCaptcha(domain, siteKeyLocal);
+      captchaToken = captchaToken.value;
+      
+      setRunningStatus('Checking Out...');
+      urlReq = await request.post({
+        headers: {
+          'User-Agent': getUA(),
+          'content-type': 'application/x-www-form-urlencoded'
+        },
+        url: checkoutURL,
+        body: encodeURI(
+          `authenticity_token=${authToken}&g-recaptcha-response=${captchaToken}&data_via=cookie&commit=`
+        )
+      });
+    }
+    ```
+    
+    **When it appears:**
+    - Suspicious activity detected
+    - Too many checkout attempts
+    - New account or guest checkout
+  </Tab>
+  
+  <Tab title="Challenge Captcha (Account Login)">
+    **Location:** `Preload.js:340-368`, `fast.js:281-310`
+    
+    Triggered after account login when URL includes `/challenge`:
+    
+    ```javascript
+    if (checkoutURL.includes('/challenge')) {
+      const challengeToken = await getCaptcha(
+        checkoutURL,
+        urlRes.split('sitekey: "')[1].split('"')[0]
+      );
+      
+      challengeReq = await request.post({
+        url: `${domain}/account/login`,
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          'user-agent': getUA()
+        },
+        body: encodeURI(
+          `authenticity_token=${authToken}&g-recaptcha-response=${challengeToken}`
+        )
+      });
+    }
+    ```
+    
+    **When it appears:**
+    - Logging in from new location
+    - Account login patterns look suspicious
+    - Multiple failed login attempts
+  </Tab>
+  
+  <Tab title="First Step Captcha">
+    **Location:** `Preload.js:1037-1065`, `fast.js:593-630`, `safe_1.js:586-605`
+    
+    Some sites require captcha before submitting shipping address:
+    
+    ```javascript
+    let firstStepCaptcha = false;
+    let siteKeyLocal = '';
+    
+    if (urlRes.includes('sitekey: "')) {
+      siteKeyLocal = urlRes.split('sitekey: "')[1].split('"')[0];
+      firstStepCaptcha = true;
+    }
+    
+    // Later, when submitting address:
+    if (firstStepCaptcha) {
+      setRunningStatus('firstStepCaptcha');
+      const captchaTokenn = await getCaptcha(domain, siteKeyLocal);
+      addressBody += `&g-recaptcha-response=${captchaTokenn}`;
+    }
+    ```
+    
+    **When it appears:**
+    - High-profile sites (Supreme, Palace)
+    - During peak traffic
+    - Guest checkout selected
+  </Tab>
+</Tabs>
+
+### Implementing Captcha Solving
+
+<CodeGroup>
+```javascript 2Captcha Example
+const axios = require('axios');
+
+async function getCaptcha(domain, sitekeylocal) {
+  const API_KEY = 'your_2captcha_api_key';
+  
+  // Submit captcha task
+  const submitRes = await axios.post(
+    'http://2captcha.com/in.php',
+    new URLSearchParams({
+      key: API_KEY,
+      method: 'userrecaptcha',
+      googlekey: sitekeylocal,
+      pageurl: domain,
+      json: 1
+    })
+  );
+  
+  const taskId = submitRes.data.request;
+  
+  // Poll for solution
+  let solution = null;
+  while (!solution) {
+    await delay(5000);
+    const resultRes = await axios.get(
+      `http://2captcha.com/res.php?key=${API_KEY}&action=get&id=${taskId}&json=1`
+    );
+    
+    if (resultRes.data.status === 1) {
+      solution = resultRes.data.request;
+    }
+  }
+  
+  console.log('Captcha solved'.green);
+  return solution;
+}
+```
+
+```javascript CapMonster Example
+const { CapMonsterCloudClientFactory, ClientOptions, RecaptchaV2ProxylessRequest } = require('@zennolab/capmonstercloud-client');
+
+async function getCaptcha(domain, sitekeylocal) {
+  const cmcClient = CapMonsterCloudClientFactory.Create(new ClientOptions({
+    clientKey: 'your_capmonster_key'
+  }));
+  
+  const recaptchaV2Request = new RecaptchaV2ProxylessRequest({
+    websiteURL: domain,
+    websiteKey: sitekeylocal
+  });
+  
+  console.log('Solving captcha...'.yellow);
+  const result = await cmcClient.Solve(recaptchaV2Request);
+  
+  console.log('Captcha solved'.green);
+  return result.gRecaptchaResponse;
+}
+```
+</CodeGroup>
+
+## Account Login Automation
+
+Some Shopify stores require account login before checkout. The bot handles this automatically.
+
+**Source:** `Preload.js:308-368`, `fast.js:257-310`, `safe_1.js:253-307`
+
+### Login Detection
+
+```javascript
+if (checkoutURL.includes('account/login')) {
+  setRunningStatus('Signing Into Account...');
+  // ... login logic
+}
+```
+
+### Login Flow
+
+<Steps>
+  <Step title="Extract Checkout URL">
+    Decode the return URL from query parameters (lines 312-314)
+    
+    ```javascript
+    const checkout_url = decodeURIComponent(
+      checkoutURL.split('checkout_url=')[1].split('&')[0]
+    );
+    ```
+  </Step>
+  
+  <Step title="Submit Login Credentials">
+    POST email and password to `/account/login` (lines 316-329)
+    
+    ```javascript
+    const loginReq = await request.post({
+      url: `${domain}/account/login`,
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        'user-agent': getUA()
+      },
+      body: `form_type=customer_login&utf8=✓&customer[email]=${
+        item.shopifyEmail
+      }&customer[password]=${item.shopifyPassword}&checkout_url=${encodeURI(
+        checkout_url
+      )}`
+    });
+    
+    checkoutURL = loginReq.finalUrl;
+    ```
+  </Step>
+  
+  <Step title="Handle Challenge Captcha">
+    If redirected to `/challenge`, solve captcha (lines 340-368)
+    
+    ```javascript
+    if (checkoutURL.includes('/challenge')) {
+      const challengeToken = await getCaptcha(
+        checkoutURL,
+        urlRes.split('sitekey: "')[1].split('"')[0]
+      );
+      
+      challengeReq = await request.post({
+        url: `${domain}/account/login`,
+        body: encodeURI(
+          `authenticity_token=${authToken}&g-recaptcha-response=${challengeToken}`
+        )
+      });
+      
+      checkoutURL = challengeReq.finalUrl;
+    }
+    ```
+  </Step>
+  
+  <Step title="Proceed to Checkout">
+    After successful login, continue with normal checkout flow
+  </Step>
+</Steps>
+
+<Info>
+Account login is optional. If `shopifyEmail` and `shopifyPassword` are empty, the bot proceeds with guest checkout.
+</Info>
+
+### Benefits of Account Login
+
+- **Saved Information**: Address and payment may be pre-filled
+- **Reduced Captchas**: Established accounts trigger fewer challenges
+- **Order History**: All orders tied to one account
+- **Loyalty Programs**: Access to member-only releases
+
+## Keyword Filtering
+
+When monitoring product releases without direct URLs, the bot uses sophisticated keyword filtering to find the target product.
+
+**Source:** `Preload.js:136-180`, `fast.js:128-157`, `safe_1.js:128-155`
+
+### Filter Syntax
+
+<ParamField path="+keyword" type="string">
+  **Required keyword** - Product title MUST contain this word
+  
+  ```javascript
+  keywords: "+yeezy +350"
+  // Matches: "Yeezy Boost 350 V2", "YEEZY 350 Black"
+  // Rejects: "Yeezy 500", "Yeezy Foam Runner"
+  ```
+</ParamField>
+
+<ParamField path="-keyword" type="string">
+  **Exclusion keyword** - Product title must NOT contain this word
+  
+  ```javascript
+  keywords: "+yeezy -toddler -infant"
+  // Matches: "Yeezy Boost 350 Adult"
+  // Rejects: "Yeezy 350 Toddler", "Yeezy Infant"
+  ```
+</ParamField>
+
+<ParamField path="keyword" type="string">
+  **Regular keyword** (no prefix) - Same as `+keyword`
+  
+  ```javascript
+  keywords: "jordan 1"
+  // Equivalent to: "+jordan +1"
+  ```
+</ParamField>
+
+### Filtering Algorithm
+
+<Steps>
+  <Step title="Fetch Products">
+    Request product list from Shopify API (lines 125-135)
+    
+    ```javascript
+    const url = "https://" + item.website + "/products.json?limit=250&page=1&order=updated_at";
+    let stock = await request.get({ url });
+    let avaliableProduct = JSON.parse(stock.body).products;
+    ```
+  </Step>
+  
+  <Step title="Parse Keywords">
+    Split keyword string into array and add color (lines 138-143)
+    
+    ```javascript
+    const words = item.keywords.trim();
+    const keywordsArr = [...words.split(' ')];
+    
+    if (!item.randomColor) {
+      keywordsArr.push(item.color);
+    }
+    ```
+  </Step>
+  
+  <Step title="Filter Products">
+    Apply inclusion and exclusion logic (lines 144-176)
+    
+    ```javascript
+    const forRemoval = [...avaliableProduct];
+    const removed = [];
+    
+    for (let keyword in keywordsArr) {
+      const activeWord = keywordsArr[keyword];
+      
+      for (let i in avaliableProduct) {
+        const itemTest = avaliableProduct[i];
+        
+        // Exclusion: Remove if title contains word
+        if (activeWord[0] === '-') {
+          if (itemTest.title.toLowerCase()
+              .includes(activeWord.toLowerCase().substring(1))) {
+            removed.push(itemTest.id);
+            forRemoval.splice(forRemoval.indexOf(itemTest), 1);
+          }
+        } 
+        // Inclusion: Remove if title does NOT contain word
+        else {
+          const searchWord = activeWord[0] === '+' 
+            ? activeWord.toLowerCase().substring(1)
+            : activeWord.toLowerCase();
+            
+          if (!itemTest.title.toLowerCase().includes(searchWord)) {
+            removed.push(itemTest.id);
+            forRemoval.splice(forRemoval.indexOf(itemTest), 1);
+          }
+        }
+      }
+    }
+    
+    chosenProduct = forRemoval[0];
+    ```
+  </Step>
+  
+  <Step title="Select First Match">
+    Use the first product that passes all filters
+  </Step>
+</Steps>
+
+### Keyword Examples
+
+<CodeGroup>
+```javascript Simple Match
+keywords: "+jordan"
+// Matches any product with "jordan" in title
+// "Air Jordan 1 High", "Jordan 4 Retro", "Jordan Hoodie"
+```
+
+```javascript Multiple Requirements
+keywords: "+jordan +1 +high"
+// Must contain all three words
+// Matches: "Air Jordan 1 High OG"
+// Rejects: "Jordan 1 Low", "Jordan 4 High"
+```
+
+```javascript With Exclusions
+keywords: "+jordan +1 -low -mid"
+// Must have "jordan" and "1", but NOT "low" or "mid"
+// Matches: "Air Jordan 1 High", "Jordan 1 Retro High"
+// Rejects: "Jordan 1 Low", "Jordan 1 Mid"
+```
+
+```javascript Color Filtering
+keywords: "+yeezy +350"
+color: "Black"
+randomColor: false
+// Automatically adds "Black" to required keywords
+// Matches: "Yeezy 350 Black", "Yeezy Boost 350 V2 Black"
+// Rejects: "Yeezy 350 White"
+```
+
+```javascript Complex Filter
+keywords: "+nike +dunk +high -sb -pro -low"
+color: "Panda"
+randomColor: false
+// Must have: nike, dunk, high, Panda
+// Must NOT have: sb, pro, low
+// Matches: "Nike Dunk High Panda"
+```
+</CodeGroup>
+
+<Warning>
+Keywords are case-insensitive. "+Jordan" and "+jordan" are equivalent.
+</Warning>
+
+### Monitoring Loop
+
+When using keywords, the bot polls the product feed until a match is found:
+
+```javascript Preload.js:118-179
+let firsty = true;
+while (!chosenProduct) {
+  if (!firsty) {
+    await delay(1000);  // Wait between polls
+  } else {
+    firsty = false;
+  }
+  
+  // Fetch and filter products
+  const url = "https://" + item.website + "/products.json";
+  let stock = await request.get({ url });
+  // ... filtering logic ...
+  
+  chosenProduct = forRemoval[0];
+  console.log(forRemoval.length);  // Show matching products
+}
+```
+
+<Info>
+The delay between polling requests varies by script:
+- **Preload.js**: 1000ms
+- **fast.js**: 500ms  
+- **safe_1.js**: 1000ms
+</Info>
+
+## Size Selection Logic
+
+The bot implements intelligent size selection with support for random selection and specific matching.
+
+**Source:** `Preload.js:189-216`, `fast.js:166-183`, `safe_1.js:164-181`
+
+<Tabs>
+  <Tab title="Random Size">
+    When `randomSize: true`, select any available size:
+    
+    ```javascript
+    if (item.randomSize || item.size.toLowerCase().includes('onesize')) {
+      let avaliable = false;
+      while (!avaliable) {
+        size = variants[Math.floor(Math.random() * variants.length)];
+        if (size.hasOwnProperty('available') && 
+            !item.size.toLowerCase().includes('onesize')) {
+          avaliable = size.available;
+        } else {
+          avaliable = true;
+        }
+      }
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Specific Size (Text)">
+    For clothing sizes (S, M, L, XL), use partial string matching:
+    
+    ```javascript
+    if (isNaN(item.size)) {
+      size = variants.filter(
+        (itemm) => itemm.title.toLowerCase().includes(item.size.toLowerCase()) 
+                   && itemm.available
+      )[0];
+    }
+    ```
+    
+    Example:
+    ```javascript
+    size: "M"  // Matches "Medium", "M", "Size M"
+    size: "Large"  // Matches "Large", "L"
+    ```
+  </Tab>
+  
+  <Tab title="Specific Size (Numeric)">
+    For shoe sizes, use exact numeric matching:
+    
+    ```javascript
+    if (!isNaN(item.size)) {
+      size = variants.filter(
+        (itemm) => itemm.title.includes(item.size.toString()) 
+                   && itemm.available
+      )[0];
+    }
+    ```
+    
+    Example:
+    ```javascript
+    size: "10"    // Matches "10", "Size 10"
+    size: "10.5"  // Matches "10.5", "Size 10.5"
+    ```
+  </Tab>
+</Tabs>
+
+## Status Logging
+
+The bot provides real-time status updates throughout the checkout process:
+
+```javascript Preload.js:32-34
+function setRunningStatus(str) {
+  console.log(`${str}`.white);
+}
+```
+
+### Status Messages
+
+| Message | Phase | Meaning |
+|---------|-------|----------|
+| `Searching For Test Product...` | Preload | Finding test product for preload |
+| `Found Test Product...` | Preload | Test product located |
+| `Preloading Cart...` | Preload | Adding test product to cart |
+| `Generating Checkout Link...` | Preload | Creating checkout session |
+| `Signing Into Account...` | Login | Submitting account credentials |
+| `Removed Item From Cart...` | Preload | Test product removed |
+| `Searching For Product...` | Monitoring | Looking for target product |
+| `Adding to Cart...` | Checkout | Adding product to cart |
+| `Going to Checkout...` | Checkout | Navigating to checkout |
+| `Polling Queue X...` | Queue | Waiting in queue (X = poll count) |
+| `Submitting Address...` | Checkout | Sending shipping information |
+| `Getting Shipping Rates...` | Checkout | Fetching shipping options |
+| `Submitting Shipping...` | Checkout | Selecting shipping method |
+| `Vaulting Card Info...` | Payment | Tokenizing payment info |
+| `Checking Out...` | Payment | Submitting final payment |
+| `Polling Checkout X...` | Payment | Waiting for payment processing |
+| `Success` | Complete | Order placed successfully |
+
+## Error Handling
+
+The bot implements basic error handling:
+
+```javascript Preload.js:28-30
+function endRun(err = 'error') {
+  console.log(`ended run, ${err}`.red);
+}
+```
+
+Common error messages:
+- `There are no shipping methods available for your cart or address`
+- `Paypal Only` - Site only accepts PayPal
+- `queue error` - Queue handling failed
+- Error messages from `<p class="notice__text">` (card declined, etc.)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration Guide" icon="gear" href="/guides/configuration">
+    Complete configuration reference
+  </Card>
+  <Card title="Script Variants" icon="code" href="/guides/scripts">
+    Choose the right script for your use case
+  </Card>
+</CardGroup>

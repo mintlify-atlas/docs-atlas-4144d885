@@ -1,80 +1,396 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start
+description: Set up and run your first Shopify Module automation task in minutes
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+Before you begin, ensure you have:
 
-### Step 1: Set up your local environment
+- **Node.js** (v12.x or higher)
+- **npm** (v6.x or higher)
+- A **Shopify-powered website** to test against
+- Basic knowledge of JavaScript and async/await patterns
+
+<Warning>
+  Never use this on production sites without permission. This guide uses test products and should only be used for educational purposes.
+</Warning>
+
+## Installation
+
+<Steps>
+  <Step title="Install Dependencies">
+    The project requires several npm packages. Install them using:
+
+    ```bash
+    npm install request-promise cheerio delay atob btoa colors
+    ```
+
+    <Tip>
+      If you're using a modern Node.js version, `atob` and `btoa` are built-in and may not need separate installation.
+    </Tip>
+  </Step>
+
+  <Step title="Choose Your Script">
+    Select the appropriate script for your use case:
+
+    - **Preload.js** - For sites with strict bot protection
+    - **fast.js** - For speed-optimized checkouts
+    - **safe_1.js** - For maximum reliability
+
+    <Note>
+      Start with `safe_1.js` if you're unsure. It's the most stable option.
+    </Note>
+  </Step>
+
+  <Step title="Configure Task Settings">
+    Edit the task configuration object in your chosen script. See the [Configuration section](#configuration) below for details.
+  </Step>
+</Steps>
+
+## Configuration
+
+### Basic Task Object
+
+All scripts use a similar task configuration object. Here's a complete example from `fast.js`:
+
+```javascript
+let item = {
+  // Shopify Account (optional, required if site needs login)
+  shopifyEmail: "",
+  shopifyPassword: "",
+  
+  // Product Search
+  url: 'https://www.jimmyjazz.com/collections/mens-basketball-shoes/products/nike-blazer-mid-77-vintage-bq6806-108',
+  keywords: "",  // Alternative to URL: "+yeezy +350 +boost -toddler"
+  
+  // Variant Selection
+  color: "",
+  size: "9",
+  randomColor: true,
+  randomSize: true,
+  
+  // Shipping Profile
+  profile: {
+    firstName: "Tim",
+    lastName: "Smithson",
+    email: "example@gmail.com",
+    phoneNumber: "8455415678",
+    address: "19 main street",
+    apt: "",
+    city: "New York",
+    state: "NY",
+    zipCode: "10016",
+    country: "US",
+    
+    // Payment Information
+    nameOnCard: "Tim Smithson",
+    cardNumber: "4242424242424242",
+    cardType: "visa",
+    expirationMonth: 2,
+    expirationYear: 22,
+    cvv: "123"
+  },
+  
+  // Proxy Configuration (optional)
+  proxyIp: "",
+  proxyPort: "",
+  proxyUser: "",
+  proxyPass: "",
+  
+  // Advanced
+  website: "www.jimmyjazz.com",
+  delay: 0
+};
+```
+
+### Configuration Fields Explained
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+  <Accordion title="Product Search Options">
+    **URL Method** (Recommended):
+    ```javascript
+    url: 'https://kith.com/products/nike-dunk-low'
+    keywords: ""  // Leave empty when using URL
+    ```
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+    **Keyword Method**:
+    ```javascript
+    url: ""
+    keywords: "+nike +dunk +low -toddler"  // Space-separated
+    ```
+    
+    <Tip>
+      Use `+` prefix for required terms and `-` for exclusions:
+      - `+yeezy +boost` = must contain both
+      - `-kids` = must NOT contain "kids"
+    </Tip>
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
+
+  <Accordion title="Variant Selection">
+    **Size Selection**:
+    ```javascript
+    size: "10",        // Specific size
+    randomSize: false  // Set to true for any available size
+    ```
     
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+    **Color Selection**:
+    ```javascript
+    color: "black",    // Specific color
+    randomColor: false // Set to true for any color
+    ```
+    
+    <Note>
+      For clothing, use standard sizes: `"S"`, `"M"`, `"L"`, `"XL"`
+    </Note>
+  </Accordion>
+
+  <Accordion title="Profile Configuration">
+    **Required Fields**:
+    - `firstName`, `lastName`
+    - `email` (must be valid format)
+    - `phoneNumber` (10 digits)
+    - `address`, `city`, `state`, `zipCode`, `country`
+    - `nameOnCard`, `cardNumber`, `cvv`
+    - `expirationMonth` (1-12), `expirationYear` (last 2 digits)
+
+    **Optional Fields**:
+    - `apt` (apartment/suite number)
+    
+    <Warning>
+      Use test card numbers only! `4242424242424242` is Stripe's test card.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Proxy Configuration">
+    ```javascript
+    proxyIp: "123.45.67.89",
+    proxyPort: "8080",
+    proxyUser: "username",
+    proxyPass: "password"
+    ```
+    
+    When proxy is configured, the script constructs:
+    ```javascript
+    proxy: `http://${proxyUser}:${proxyPass}@${proxyIp}:${proxyPort}`
+    ```
+    
+    <Tip>
+      Leave all proxy fields empty to run without a proxy (direct connection).
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Advanced Options">
+    **Website**:
+    ```javascript
+    website: "www.kith.com"  // Domain without protocol
+    ```
+    
+    **Delay**:
+    ```javascript
+    delay: 0  // Milliseconds to delay before checkout submission
+    ```
+    
+    <Note>
+      Adding a small delay (100-500ms) can help avoid anti-bot triggers on some sites.
+    </Note>
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Running Your First Task
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+### Example 1: Direct URL Purchase (safe_1.js)
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+```javascript
+// safe_1.js configuration
+let item = {
+  shopifyEmail: "",
+  shopifyPassword: "",
+  color: "",
+  delay: 0,
+  
+  // Direct product URL
+  url: 'https://www.jimmyjazz.com/products/adidas-terrex-frozetrack-mid-ac7841',
+  keywords: "",
+  
+  profile: {
+    firstName: "John",
+    lastName: "Doe",
+    email: "test@example.com",
+    phoneNumber: "5551234567",
+    address: "123 Test St",
+    apt: "",
+    city: "Los Angeles",
+    state: "CA",
+    zipCode: "90001",
+    country: "US",
+    nameOnCard: "John Doe",
+    cardNumber: "4242424242424242",
+    cardType: "visa",
+    expirationMonth: 12,
+    expirationYear: 25,
+    cvv: "123"
+  },
+  
+  randomSize: true,
+  size: "9",
+  website: "www.jimmyjazz.com"
+};
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+**Run it:**
+```bash
+node safe_1.js
+```
 
-### Step 3: Go live
+### Example 2: Keyword Search (fast.js)
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+```javascript
+// fast.js configuration
+let item = {
+  url: "",
+  keywords: "+jordan +1 +high -toddler",  // Search for Air Jordan 1 High (not toddler sizes)
+  
+  randomSize: false,
+  size: "10.5",  // Specific size
+  randomColor: false,
+  color: "bred",  // Specific colorway
+  
+  website: "www.nike.com",
+  delay: 250  // 250ms delay before checkout
+};
+```
 
-## Next steps
+**Run it:**
+```bash
+node fast.js
+```
 
-Now that you have your docs running, explore these key features:
+### Example 3: Preload Strategy (Preload.js)
+
+```javascript
+// Preload.js has dual product configuration
+let item = {
+  // Test product (loads first to establish session)
+  urltest: 'https://kith.com/products/test-tee',
+  keywordstest: "+tee",
+  sizetest: "M",
+  randomSizetest: true,
+  
+  // Real target product
+  url: 'https://kith.com/products/nike-dunk-low-premium',
+  keywords: "",
+  size: "10",
+  randomSize: false,
+  
+  website: "www.kith.com"
+};
+```
+
+**Run it:**
+```bash
+node Preload.js
+```
+
+<Tip>
+  The preload strategy first adds a cheap/available test product to cart, generates a checkout URL, then swaps to your target product. This can bypass some rate limiting.
+</Tip>
+
+## Understanding the Output
+
+### Status Messages
+
+The script outputs colored status messages:
+
+```bash
+Searching For Product...        # Looking for product
+Adding to Cart...              # Adding variant to cart
+Going to Checkout...           # Navigating to checkout
+Signing Into Account...        # Logging into Shopify account (if needed)
+Polling Queue 0...             # Handling queue system
+Submitting Address...          # Submitting shipping info
+Getting Shipping Rates...      # Fetching shipping options
+Submitting Shipping...         # Selecting shipping method
+Vaulting Card Info...          # Tokenizing payment card
+Checking Out...                # Submitting payment
+Polling Checkout 0...          # Waiting for order confirmation
+Success                        # Order completed!
+```
+
+### Error Messages
+
+<Warning>
+  Common errors and their meanings:
+</Warning>
+
+```bash
+ended run, error                                    # Generic error
+ended run, Paypal Only                             # Site only accepts PayPal
+ended run, There are no shipping methods available  # Address/shipping issue
+Captcha needs solving                              # reCAPTCHA detected
+```
+
+## Next Steps
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Advanced Features" icon="star" href="/guides/advanced-features">
+    Learn about queue handling and captcha integration
+  </Card>
+  <Card title="Script Variants" icon="code" href="/guides/scripts">
+    Compare Preload, Fast, and Safe scripts
+  </Card>
+  <Card title="API Reference" icon="book" href="/reference/api">
+    Explore all available functions
+  </Card>
+  <Card title="Configuration Guide" icon="sliders" href="/guides/configuration">
+    Deep dive into all configuration options
+  </Card>
 </CardGroup>
 
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Product not found">
+    **Problem**: Script can't find the product
+    
+    **Solutions**:
+    - Verify the URL is correct and includes the full product path
+    - Check that keywords match the exact product title
+    - Ensure the product is published and available
+    - Try accessing `{url}.js` directly in your browser to see the JSON
+  </Accordion>
+
+  <Accordion title="Stuck in queue">
+    **Problem**: Script keeps polling queue endlessly
+    
+    **Solutions**:
+    - This is normal during high-traffic releases
+    - The queue system is working as intended
+    - Wait for queue to complete (can take several minutes)
+    - Try using a different proxy/IP address
+  </Accordion>
+
+  <Accordion title="Checkout fails">
+    **Problem**: Error during checkout submission
+    
+    **Solutions**:
+    - Verify all profile information is correct
+    - Check that card details are valid (use test cards for testing)
+    - Ensure shipping address is valid for the site's region
+    - Check if site requires account login
+  </Accordion>
+
+  <Accordion title="Captcha errors">
+    **Problem**: "Captcha needs solving" appears
+    
+    **Solutions**:
+    - The `getCaptcha()` function is a placeholder
+    - You need to integrate a captcha solving service (2Captcha, Anti-Captcha, etc.)
+    - Implement the captcha solver in the `getCaptcha()` function
+    - See the Captcha Integration guide for details
+  </Accordion>
+</AccordionGroup>
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Performance Tip**: For the fastest checkouts, use `fast.js` with a good residential proxy and pre-configured profile information.
 </Note>

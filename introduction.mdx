@@ -1,0 +1,209 @@
+---
+title: Introduction
+description: A Node.js automation suite for purchasing products from Shopify-powered websites with advanced queue handling and captcha support
+---
+
+<Note>
+  This project was created years ago for sneaker botting and is 100% outdated. It serves as an educational reference for understanding Shopify's checkout flow and automation techniques.
+</Note>
+
+## What is Shopify Module?
+
+Shopify Module is a sophisticated Node.js automation script designed to automate the checkout process on Shopify-powered e-commerce websites. Originally built for high-demand product releases (sneakers, limited edition items), it demonstrates advanced techniques for handling modern e-commerce challenges.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Product Search" icon="magnifying-glass">
+    Search products by direct URL or dynamic keywords with support for inclusion/exclusion operators
+  </Card>
+  <Card title="Variant Selection" icon="grid">
+    Intelligent size and color variant selection with random or specific targeting
+  </Card>
+  <Card title="Queue Management" icon="clock">
+    Advanced handling of Shopify's queue system with polling and token-based continuation
+  </Card>
+  <Card title="Account Authentication" icon="user">
+    Automated Shopify account login with challenge/captcha detection
+  </Card>
+  <Card title="Captcha Detection" icon="shield-check">
+    Built-in detection for reCAPTCHA checkpoints and challenge pages
+  </Card>
+  <Card title="Proxy Support" icon="server">
+    Full proxy integration for distributed requests and rate limit bypassing
+  </Card>
+  <Card title="Card Vaulting" icon="credit-card">
+    Secure card tokenization via Shopify's payment gateway
+  </Card>
+  <Card title="Multiple Variants" icon="code">
+    Three script versions: Preload, Fast, and Safe for different use cases
+  </Card>
+</CardGroup>
+
+## Script Variants
+
+The project includes three specialized scripts optimized for different scenarios:
+
+### Preload.js - Full-Featured
+
+The most comprehensive variant with cart preloading capabilities:
+
+<Tip>
+  Preload.js adds a test product to cart first, generates a checkout session, then swaps to the target product. This technique helps bypass some anti-bot measures.
+</Tip>
+
+- Preloads cart with test product
+- Generates checkout URL before real product drops
+- Dual product search (test + real)
+- Best for high-security sites
+
+### fast.js - Speed Optimized
+
+Streamlined checkout flow focusing on speed:
+
+- Direct product-to-checkout flow
+- Minimal delay between steps
+- Uses Shopify Checkout API (2020-10)
+- Ideal for low-latency scenarios
+
+### safe_1.js - Reliability Focused
+
+Most reliable approach using traditional methods:
+
+- Standard cart/shipping_rates.json endpoints
+- More natural user flow simulation
+- Better for sites with strict bot detection
+- Prioritizes success rate over speed
+
+## How It Works
+
+<Steps>
+  <Step title="Product Discovery">
+    The script searches for products either by direct URL (`.js` endpoint) or by polling `/products.json` with keyword matching.
+    
+    ```javascript
+    // URL-based search
+    const product = await request.get({
+      url: item.url + '.js'
+    });
+    
+    // Keyword-based search
+    const products = await request.get({
+      url: `https://${website}/products.json`
+    });
+    ```
+  </Step>
+  
+  <Step title="Variant Selection">
+    Filters available variants and selects based on size/color preferences using smart matching logic.
+    
+    ```javascript
+    variants = chosenProduct.variants.filter(
+      variant => variant.available
+    );
+    ```
+  </Step>
+  
+  <Step title="Add to Cart">
+    Adds the selected variant to cart via `/cart/add.js` endpoint.
+    
+    ```javascript
+    await request.post({
+      url: domain + "/cart/add.js",
+      form: {
+        id: size.id,
+        quantity: "1"
+      }
+    });
+    ```
+  </Step>
+  
+  <Step title="Queue Handling">
+    Detects and processes Shopify's queue system if the checkout is throttled.
+    
+    <Warning>
+      Queue handling is complex and involves polling endpoints, token management, and replay object processing.
+    </Warning>
+  </Step>
+  
+  <Step title="Checkout Submission">
+    Submits shipping address, selects shipping method, vaults payment card, and completes the order.
+  </Step>
+  
+  <Step title="Order Confirmation">
+    Polls the processing endpoint until redirected to the thank you page or receives an error.
+  </Step>
+</Steps>
+
+## Technical Architecture
+
+### Request Handling
+
+Built on `request-promise` with custom middleware:
+
+```javascript
+const _include_headers = function (body, response, resolveWithFullResponse) {
+  return {
+    headers: response.headers,
+    body: body,
+    status: response.statusCode,
+    finalUrl: response.request.uri.href
+  };
+};
+```
+
+### Cookie Management
+
+Maintains session state across requests:
+
+```javascript
+let cookieJar = request.jar();
+```
+
+### User Agent
+
+Simulates Chrome browser:
+
+```javascript
+function getUA() {
+  return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36";
+}
+```
+
+## Common Use Cases
+
+<CardGroup cols={2}>
+  <Card title="Sneaker Releases" icon="shoe-prints">
+    Automate purchasing limited edition sneakers from Shopify stores
+  </Card>
+  <Card title="Limited Drops" icon="fire">
+    Secure items from high-demand product launches
+  </Card>
+  <Card title="Restocks" icon="rotate">
+    Monitor and auto-checkout restocked items
+  </Card>
+  <Card title="Testing" icon="flask">
+    Test e-commerce flows and checkout systems
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get up and running with your first automation task
+  </Card>
+  <Card title="Configuration" icon="gear" href="/guides/configuration">
+    Learn about all available configuration options
+  </Card>
+  <Card title="Advanced Features" icon="star" href="/guides/advanced-features">
+    Deep dive into queue handling and captcha integration
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/reference/troubleshooting">
+    Common issues and solutions
+  </Card>
+</CardGroup>
+
+<Warning>
+  **Legal & Ethical Notice**: This code is provided for educational purposes only. Automated purchasing may violate website terms of service and could be illegal in some jurisdictions. Use responsibly and at your own risk.
+</Warning>

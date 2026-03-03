@@ -1,0 +1,743 @@
+---
+title: Troubleshooting Guide
+description: Common issues and solutions for the Shopify Module
+---
+
+## Common Issues
+
+<Accordion title='"There are no shipping methods available for your cart or address"'>
+  
+  ### Problem
+  This error occurs when Shopify cannot find valid shipping methods for the provided address or product combination.
+  
+  ### Causes
+  - Invalid or incomplete shipping address
+  - Product doesn't ship to the specified country/region
+  - ZIP/postal code doesn't match the city/state
+  - Store has restricted shipping for certain products
+  - Address validation failed
+  
+  ### Solutions
+  
+  **1. Verify Address Format**
+  ```javascript
+  profile: {
+    address: "19 Main Street",  // Full street address
+    city: "New York",           // Correct city name
+    state: "NY",                // Use 2-letter state code
+    zipCode: "10016",           // Valid ZIP for the city
+    country: "US"               // ISO country code
+  }
+  ```
+  
+  **2. Check Address Components Match**
+  - Ensure ZIP code is valid for the specified city and state
+  - Use proper state abbreviations (NY, CA, TX, not New York, California, Texas)
+  - Verify the country code matches Shopify's expected format
+  
+  **3. Test with Different Products**
+  Some products have shipping restrictions. Try with a different product to confirm the issue is address-related.
+  
+  **4. Review Store Shipping Settings**
+  The store may have specific shipping zones configured. Check which regions the store ships to.
+  
+  **5. Handle in Code**
+  ```javascript
+  const addressRes = addressReq.body;
+  
+  if (addressRes.includes('There are no shipping methods available')) {
+    // Log detailed error
+    console.log('Shipping Error: Address may be invalid or outside shipping zone');
+    
+    // Attempt retry with alternative address format
+    // Or notify user to check address details
+    endRun('No shipping methods available');
+  }
+  ```
+
+</Accordion>
+
+<Accordion title="Account Login Failures">
+  
+  ### Problem
+  Unable to log into Shopify account or authentication fails during checkout.
+  
+  ### Causes
+  - Incorrect credentials
+  - Account requires captcha verification
+  - Account locked or suspended
+  - Session/cookie issues
+  - Rate limiting from too many login attempts
+  
+  ### Solutions
+  
+  **1. Verify Credentials**
+  ```javascript
+  item: {
+    shopifyEmail: "user@example.com",    // Correct email
+    shopifyPassword: "correctpassword",  // Correct password
+    // ...
+  }
+  ```
+  
+  **2. Implement Captcha Solving**
+  ```javascript
+  function getCaptcha(domain, sitekeylocal) {
+    // Integrate captcha solving service
+    return await captchaService.solve({
+      websiteURL: domain,
+      websiteKey: sitekeylocal,
+      type: 'ReCaptchaV2'
+    });
+  }
+  ```
+  
+  **3. Handle Challenge Response**
+  The module automatically detects `/challenge` endpoints:
+  ```javascript
+  if (checkoutURL.includes('/challenge')) {
+    const challengeToken = await getCaptcha(
+      checkoutURL, 
+      siteKey
+    );
+    
+    // Submit challenge response
+    await request.post({
+      url: `${domain}/account/login`,
+      form: {
+        authenticity_token: authToken,
+        'g-recaptcha-response': challengeToken
+      }
+    });
+  }
+  ```
+  
+  **4. Check Account Status**
+  - Verify the account is active and not suspended
+  - Ensure the account hasn't been locked due to suspicious activity
+  - Try logging in manually through a browser first
+  
+  **5. Manage Rate Limits**
+  - Add delays between login attempts
+  - Use residential proxies to avoid IP-based rate limiting
+  - Implement exponential backoff for failed attempts
+
+</Accordion>
+
+<Accordion title="Checkpoint/Captcha Detection">
+  
+  ### Problem
+  Shopify presents a checkpoint or captcha that blocks the checkout flow.
+  
+  ### Causes
+  - High-risk behavior detected
+  - Proxy IP flagged
+  - Multiple rapid checkout attempts
+  - Suspicious user agent or browser fingerprint
+  - Account login from new location
+  
+  ### Solutions
+  
+  **1. Implement Captcha Integration**
+  
+  The module has three captcha hooks you must implement:
+  
+  **Login Challenge:**
+  ```javascript
+  // Triggered at: Preload.js:342 and Preload.js:982
+  if (checkoutURL.includes('/challenge')) {
+    const challengeToken = await getCaptcha(
+      checkoutURL,
+      siteKeyLocal
+    );
+  }
+  ```
+  
+  **Checkout Checkpoint:**
+  ```javascript
+  // Triggered at: Preload.js:376 and Preload.js:1011
+  if (checkoutURL.includes('/checkpoint')) {
+    let captchaToken = await getCaptcha(domain, siteKeyLocal);
+    // Submit with authenticity token
+  }
+  ```
+  
+  **First-Step Captcha:**
+  ```javascript
+  // Triggered at: Preload.js:1063
+  if (firstStepCaptcha) {
+    const captchaToken = await getCaptcha(domain, siteKeyLocal);
+    // Include in address submission
+  }
+  ```
+  
+  **2. Example Captcha Implementation**
+  ```javascript
+  function getCaptcha(domain, sitekeylocal) {
+    console.log('Captcha needs solving'.underline.yellow);
+    
+    // 2Captcha Example
+    return new Promise((resolve, reject) => {
+      solver.recaptchaV2({
+        googlekey: sitekeylocal,
+        pageurl: domain
+      })
+      .then(response => {
+        resolve(response.data);
+      })
+      .catch(error => {
+        console.error('Captcha solving failed:', error);
+        reject(error);
+      });
+    });
+  }
+  ```
+  
+  **3. Reduce Checkpoint Triggers**
+  - Use high-quality residential proxies
+  - Implement realistic delays between actions
+  - Maintain consistent user agent across requests
+  - Preserve cookies and session data
+  - Avoid rapid-fire requests
+  
+  **4. Supported Captcha Services**
+  - 2Captcha
+  - Anti-Captcha
+  - CapMonster
+  - CapSolver
+  - Any service supporting reCAPTCHA v2
+
+</Accordion>
+
+<Accordion title="Queue Timeout Issues">
+  
+  ### Problem
+  Bot gets stuck in queue polling or times out waiting for queue to clear.
+  
+  ### Causes
+  - High traffic on the store
+  - Queue token expired
+  - Network connectivity issues
+  - Incorrect queue polling implementation
+  - Store using advanced bot protection
+  
+  ### Solutions
+  
+  **1. Understand Queue Types**
+  
+  The module handles two queue types:
+  
+  **GraphQL Queue (Modern):**
+  ```javascript
+  // Detected by: _checkout_queue_token cookie
+  POST https://{domain}/queue/poll
+  
+  Body: {
+    "query": "{ poll(token: $token) { token pollAfter } }",
+    "variables": { "token": token }
+  }
+  ```
+  
+  **Legacy Queue:**
+  ```javascript
+  // Fallback method
+  GET https://{domain}/checkout/poll?js_poll=1
+  ```
+  
+  **2. Monitor Queue Status**
+  ```javascript
+  let poll = 0;
+  while (typeName === 'PollContinue') {
+    console.log(`Polling Queue ${poll}...`);
+    
+    // Implement timeout
+    if (poll > 60) {  // 60 attempts
+      endRun('Queue timeout - exceeded maximum polls');
+      return;
+    }
+    
+    // Poll queue
+    const pollRes = await request.post({
+      url: `${domain}/queue/poll`,
+      body: JSON.stringify({
+        query: "{ poll(token: $token) { token pollAfter } }",
+        variables: { token: token }
+      })
+    });
+    
+    poll++;
+  }
+  ```
+  
+  **3. Handle Retry-After Headers**
+  ```javascript
+  const retryAfter = pollReq.headers['retry-after']
+    ? parseInt(pollReq.headers['retry-after']) * 1000
+    : 5000;  // Default 5 seconds
+  
+  await delay(retryAfter);
+  ```
+  
+  **4. Implement Queue Timeout Logic**
+  ```javascript
+  const QUEUE_TIMEOUT = 300000;  // 5 minutes
+  const queueStartTime = Date.now();
+  
+  while (parseInt(status) !== 200) {
+    if (Date.now() - queueStartTime > QUEUE_TIMEOUT) {
+      endRun('Queue timeout after 5 minutes');
+      return;
+    }
+    
+    await delay(retryAfter);
+    // Continue polling...
+  }
+  ```
+  
+  **5. Decode Queue Replay Data**
+  ```javascript
+  // After queue clears, decode replay instructions
+  function decodeReplayData(encoded) {
+    return decodeURIComponent(
+      atob(encoded.replace(/_/g, "/").replace(/-/g, "+"))
+        .split("")
+        .map(e => "%" + ("00" + e.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+  }
+  
+  const cookies = await logCookies(cookieJar);
+  const replayData = cookies.split('_queue_replay_data=')[1].split(';')[0];
+  const replayObject = JSON.parse(decodeReplayData(replayData));
+  
+  // Execute replay request
+  if (replayObject.method === 'GET') {
+    await request.get(replayObject.url);
+  }
+  ```
+
+</Accordion>
+
+<Accordion title="Payment Failures">
+  
+  ### Problem
+  Payment submission fails or card is declined during checkout.
+  
+  ### Causes
+  - Card validation failed
+  - Incorrect payment vault session ID
+  - Payment gateway not accepting credit cards
+  - Card details malformed
+  - Payment processing timeout
+  - Shopify Payment declined by issuer
+  
+  ### Solutions
+  
+  **1. Verify Card Details Format**
+  ```javascript
+  profile: {
+    cardNumber: "4242424242424242",  // No spaces or dashes
+    nameOnCard: "John Doe",           // Full name as on card
+    expirationMonth: 12,               // Numeric 1-12
+    expirationYear: 25,                // Last 2 digits (25 = 2025)
+    cvv: "123"                         // 3 or 4 digits
+  }
+  ```
+  
+  **2. Card Vaulting Process**
+  ```javascript
+  // Step 1: Vault card details
+  const vaultReq = await request.post({
+    url: "https://deposit.us.shopifycs.com/sessions",
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
+    },
+    body: JSON.stringify({
+      credit_card: {
+        month: parseInt(item.profile.expirationMonth),
+        name: item.profile.nameOnCard,
+        number: item.profile.cardNumber,
+        verification_value: item.profile.cvv,
+        year: parseInt("20" + item.profile.expirationYear)
+      }
+    })
+  });
+  
+  const vaultRes = JSON.parse(vaultReq.body);
+  const sessionId = vaultRes.id;  // Use this in payment submission
+  ```
+  
+  **3. Check Payment Gateway Support**
+  ```javascript
+  // Verify credit card gateway is available
+  if (!html.includes('data-gateway-name="credit_card"')) {
+    if (html.includes('data-select-gateway=')) {
+      endRun('Paypal Only - store does not accept credit cards');
+      return;
+    }
+  }
+  
+  // Extract gateway ID
+  const gatewayId = html
+    .split('data-gateway-name="credit_card"')[1]
+    .split('data-select-gateway="')[1]
+    .split('"')[0];
+  ```
+  
+  **4. Handle Payment Response**
+  ```javascript
+  let loops = 0;
+  while (loops < 10) {
+    await delay(1000);
+    
+    const processReq = await request.get({
+      url: checkoutURL.split('?')[0] + '/processing',
+      jar: cookieJar
+    });
+    
+    if (processReq.finalUrl.includes('thank_you') || 
+        processReq.finalUrl.includes('orders')) {
+      console.log('Success - Payment Accepted');
+      return;
+    }
+    
+    // Check for decline message
+    if (processReq.body.includes('<p class="notice__text">')) {
+      const errorMsg = processReq.body
+        .split('<p class="notice__text">')[1]
+        .split('</p>')[0];
+      
+      console.log('Payment Declined:', errorMsg);
+      return;
+    }
+    
+    loops++;
+  }
+  ```
+  
+  **5. Common Decline Reasons**
+  - "Your card was declined" - Card issuer rejected
+  - "Your card number is incorrect" - Invalid card number format
+  - "Your card's security code is incorrect" - Wrong CVV
+  - "Your card has expired" - Expiration date in the past
+  - "Your card has insufficient funds" - Not enough balance
+  - "Enter a valid discount code" - Invalid promo code used
+  
+  **6. Implement Retry Logic**
+  ```javascript
+  const maxRetries = 3;
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    try {
+      const result = await submitPayment();
+      if (result.success) break;
+    } catch (error) {
+      console.log(`Payment attempt ${attempt + 1} failed`);
+      attempt++;
+      await delay(2000);  // Wait before retry
+    }
+  }
+  ```
+
+</Accordion>
+
+<Accordion title="Proxy Configuration Problems">
+  
+  ### Problem
+  Requests fail when using proxies or proxy authentication doesn't work.
+  
+  ### Causes
+  - Incorrect proxy format
+  - Proxy authentication failed
+  - Proxy IP blocked by Shopify
+  - SSL certificate validation issues
+  - Proxy timeout or connection refused
+  
+  ### Solutions
+  
+  **1. Correct Proxy Format**
+  ```javascript
+  item: {
+    proxyIp: "123.45.67.89",      // Just IP, no http://
+    proxyPort: "8080",             // Port as string
+    proxyUser: "username",         // If auth required
+    proxyPass: "password",         // If auth required
+  }
+  
+  // Module constructs URL:
+  // http://username:password@123.45.67.89:8080
+  ```
+  
+  **2. Configure Request with Proxy**
+  ```javascript
+  const proxyUrl = item.proxyIp && item.proxyPort && 
+                   item.proxyUser && item.proxyPass
+    ? `http://${item.proxyUser}:${item.proxyPass}@${item.proxyIp}:${item.proxyPort}`
+    : '';
+  
+  const request = require('request-promise').defaults({
+    followAllRedirects: true,
+    resolveWithFullResponse: true,
+    proxy: proxyUrl
+  });
+  
+  // Disable SSL verification for proxies
+  if (proxyUrl) {
+    request.defaults({ strictSSL: false });
+  }
+  ```
+  
+  **3. Test Proxy Connection**
+  ```javascript
+  // Test before starting task
+  async function testProxy(proxyUrl) {
+    try {
+      const response = await request.get({
+        url: 'https://api.ipify.org?format=json',
+        proxy: proxyUrl,
+        timeout: 10000
+      });
+      
+      const data = JSON.parse(response.body);
+      console.log('Proxy working, IP:', data.ip);
+      return true;
+    } catch (error) {
+      console.error('Proxy test failed:', error.message);
+      return false;
+    }
+  }
+  ```
+  
+  **4. Handle Proxy Errors**
+  ```javascript
+  try {
+    const response = await request.get({
+      url: productUrl,
+      proxy: proxyUrl
+    });
+  } catch (error) {
+    if (error.message.includes('ECONNREFUSED')) {
+      endRun('Proxy connection refused - check IP and port');
+    } else if (error.message.includes('ETIMEDOUT')) {
+      endRun('Proxy timeout - proxy may be down');
+    } else if (error.message.includes('407')) {
+      endRun('Proxy authentication failed - check credentials');
+    } else {
+      endRun(`Proxy error: ${error.message}`);
+    }
+  }
+  ```
+  
+  **5. Proxy Best Practices**
+  - Use residential proxies for higher success rates
+  - Rotate proxies if one gets banned
+  - Monitor proxy response times
+  - Implement automatic proxy testing and cycling
+  - Keep proxy credentials secure
+  
+  **6. No Proxy Configuration**
+  ```javascript
+  // Leave proxy fields empty to run without proxy
+  item: {
+    proxyIp: "",
+    proxyPort: "",
+    proxyUser: "",
+    proxyPass: ""
+  }
+  ```
+
+</Accordion>
+
+<Accordion title="Product Not Found or Out of Stock">
+  
+  ### Problem
+  Bot cannot find the target product or all variants are out of stock.
+  
+  ### Causes
+  - Product URL incorrect or product removed
+  - Keywords don't match any products
+  - All variants sold out
+  - Product not yet released
+  - Store pagination limits
+  
+  ### Solutions
+  
+  **1. Using Direct URLs (Recommended)**
+  ```javascript
+  item: {
+    url: 'https://kith.com/products/nike-dunk-low',  // Direct product URL
+    urltest: 'https://kith.com/products/test-product',  // Test product
+    keywords: '',  // Leave empty when using URL
+  }
+  ```
+  
+  **2. Using Keywords**
+  ```javascript
+  item: {
+    url: '',  // Leave empty to use keywords
+    keywords: '+nike +dunk +low -toddler',  // Space-separated
+    // + prefix = must include
+    // - prefix = must exclude
+    // no prefix = must include
+  }
+  ```
+  
+  **Keyword Matching Logic:**
+  - `+nike` - Must contain "nike"
+  - `-toddler` - Must NOT contain "toddler"
+  - `dunk` - Must contain "dunk"
+  
+  **3. Handle Variant Selection**
+  ```javascript
+  // Random variant
+  item: {
+    randomSize: true,
+    size: ""  // Ignored when randomSize = true
+  }
+  
+  // Specific size
+  item: {
+    randomSize: false,
+    size: "10"  // For shoes: "9", "10", "11"
+                // For clothing: "S", "M", "L", "XL"
+                // For one-size: "OneSize"
+  }
+  ```
+  
+  **4. Monitor Stock Availability**
+  ```javascript
+  // The module automatically retries until variants are available
+  let variants;
+  while (!variants) {
+    const product = await getProduct();
+    
+    variants = product.variants.filter(v => v.available);
+    
+    if (variants.length === 0) {
+      console.log('Product out of stock, retrying...');
+      variants = null;
+      await delay(1000);  // Wait before retry
+      continue;
+    }
+  }
+  ```
+  
+  **5. Debug Product Search**
+  ```javascript
+  // Check what products are found
+  const url = `https://${item.website}/products.json?limit=250&page=1&order=updated_at`;
+  const stock = await request.get({ url });
+  const products = JSON.parse(stock.body).products;
+  
+  console.log('Available products:', products.map(p => p.title));
+  console.log('Total products:', products.length);
+  ```
+  
+  **6. Handle Product URL Formats**
+  ```javascript
+  // Correct formats:
+  ✓ https://kith.com/products/product-handle
+  ✓ https://www.jimmyjazz.com/products/product-handle
+  
+  // Module appends .js automatically:
+  // https://kith.com/products/product-handle.js
+  
+  // Incorrect formats:
+  ✗ https://kith.com/collections/mens/products/product-handle
+  ✗ https://kith.com/products/product-handle?variant=123
+  ```
+
+</Accordion>
+
+---
+
+## Debugging Tips
+
+### Enable Verbose Logging
+
+The module uses `setRunningStatus()` to log progress. Monitor these messages to understand where issues occur:
+
+```javascript
+function setRunningStatus(str) {
+  console.log(`[${new Date().toISOString()}] ${str}`);
+}
+```
+
+### Common Log Sequence
+
+1. `"Searching For Test Product..."`
+2. `"Found Test Product..."`
+3. `"Preloading Cart..."`
+4. `"Generating Checkout Link..."`
+5. `"Signing Into Account..."` (if applicable)
+6. `"Removed Item From Cart..."`
+7. `"Searching For Product..."`
+8. `"Adding to Cart Real Product..."`
+9. `"Going to Checkout..."`
+10. `"Submitting Address..."`
+11. `"Getting Shipping Rates..."`
+12. `"Submitting Shipping..."`
+13. `"Vaulting Card Info..."`
+14. `"Checking Out..."`
+15. `"Polling Checkout X..."`
+
+### Inspect Network Responses
+
+Add response logging to debug API issues:
+
+```javascript
+const response = await request.post({
+  url: checkoutURL,
+  form: formData
+});
+
+console.log('Response Status:', response.status);
+console.log('Response Headers:', response.headers);
+console.log('Response Body:', response.body);
+```
+
+### Check Cookie Persistence
+
+```javascript
+const cookies = await logCookies(cookieJar);
+console.log('Current cookies:', cookies);
+
+// Verify essential cookies exist:
+// - cart
+// - _shopify_y
+// - _shopify_s
+// - secure_customer_sig (after login)
+```
+
+### Monitor Checkout Flow State
+
+```javascript
+console.log('Checkout URL:', checkoutURL);
+console.log('Auth Token:', authToken ? 'Present' : 'Missing');
+console.log('API Token:', apiToken ? 'Present' : 'Missing');
+console.log('Checkout Token:', Token ? 'Present' : 'Missing');
+```
+
+---
+
+## Getting Help
+
+If you encounter issues not covered in this guide:
+
+1. Check that all required configuration is present
+2. Verify your captcha integration is working
+3. Test with a simple product first
+4. Enable verbose logging to identify the failure point
+5. Review the source code at the line numbers referenced in error messages
+
+### Essential Configuration Checklist
+
+- [ ] Valid product URL or keywords
+- [ ] Complete profile information
+- [ ] Working captcha solver (if needed)
+- [ ] Proxy configuration (if using)
+- [ ] Correct website domain format
+- [ ] Test product for preload phase
+- [ ] Valid payment information format
